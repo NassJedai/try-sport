@@ -1,0 +1,10 @@
+{
+  "extends": "@try/typescript-config/base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "module": "Preserve",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023", "DOM"]
+  },
+  "include": ["src/**/*.ts"]
+}
