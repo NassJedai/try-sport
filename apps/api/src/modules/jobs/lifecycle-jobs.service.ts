@@ -10,6 +10,7 @@ import { CLOCK } from '../../common/clock.js';
 import { LOGGER } from '../../common/logger.module.js';
 import { DomainEvents } from '../events/domain-events.js';
 import { IdempotencyService } from '../../common/idempotency/idempotency.service.js';
+import { ScheduleService } from '../scheduling/schedule.service.js';
 
 /**
  * Reservation lifecycle jobs.
@@ -36,6 +37,7 @@ export class LifecycleJobsService {
     @Inject(LOGGER) private readonly logger: Logger,
     private readonly events: DomainEvents,
     private readonly idempotency: IdempotencyService,
+    private readonly schedules: ScheduleService,
   ) {}
 
   /**
@@ -191,6 +193,20 @@ export class LifecycleJobsService {
 
         this.logger.info({ count: rows.length }, 'marked no-shows');
       }
+    });
+  }
+
+  /**
+   * Rolls the booking horizon forward.
+   *
+   * Without this, availability shrinks by a day every day until venues silently
+   * run out of slots — a failure that looks like "demand dropped" rather than
+   * like a bug.
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_4AM, { name: 'expand-schedules' })
+  async expandSchedules(): Promise<void> {
+    await this.withLock('jobs:expand-schedules', async () => {
+      await this.schedules.expandDueSchedules();
     });
   }
 

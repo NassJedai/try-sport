@@ -45,6 +45,11 @@ import {
 import { AuditService } from './modules/admin/audit.service.js';
 import { BusinessService } from './modules/business/business.service.js';
 import { BusinessController } from './modules/business/business.controller.js';
+import { OnboardingService } from './modules/business/onboarding.service.js';
+import { OnboardingController } from './modules/business/onboarding.controller.js';
+import { ScheduleService } from './modules/scheduling/schedule.service.js';
+import { ModerationService } from './modules/admin/moderation.service.js';
+import { AdminController } from './modules/admin/admin.controller.js';
 import { ReviewService } from './modules/reviews/review.service.js';
 import { ReviewController } from './modules/reviews/review.controller.js';
 import { FavoriteService } from './modules/favorites/favorite.service.js';
@@ -72,6 +77,8 @@ import { BookingLifecycleListener } from './modules/events/booking-lifecycle.lis
     BookingController,
     CheckInController,
     BusinessController,
+    OnboardingController,
+    AdminController,
     ReviewController,
     FavoriteController,
     WebhookController,
@@ -98,6 +105,9 @@ import { BookingLifecycleListener } from './modules/events/booking-lifecycle.lis
     BookingQueryService,
     CheckInService,
     BusinessService,
+    OnboardingService,
+    ScheduleService,
+    ModerationService,
     ReviewService,
     FavoriteService,
     LifecycleJobsService,

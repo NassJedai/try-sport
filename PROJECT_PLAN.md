@@ -22,7 +22,8 @@ from scratch.
 | Reservation lifecycle jobs | Built — hold expiry, completion, no-shows |
 | Mobile consumer app | Built — discovery → booking → QR → review |
 | Business web app | Built — dashboard, bookings, check-in, CRM |
-| Admin web app | Built — shell and access control; moderation endpoints pending |
+| Admin web app | Built — shell, access control, moderation + overview endpoints |
+| Supply onboarding | Built — business → venue → offer → schedule → submit → approve |
 
 ---
 
@@ -178,14 +179,20 @@ continuation answer ✔
 receive bookings ✔ · today's list ✔ · validate QR ✔ · mark no-show ✔ · leads ✔ ·
 update status ✔ · mark converted ✔ · analytics ✔
 
-**Admin** — secure login ✔ · role enforced server-side ✔ · **moderation,
-metrics, user/booking/payment views: NOT built.** The console renders its shell
-and correctly refuses non-admins, but the endpoints behind those sections do not
-exist yet. This checklist previously claimed them as done; that was wrong.
+**Admin** — secure login ✔ · role enforced server-side and verified with real
+signed tokens (a valid USER token gets 403) ✔ · moderation queue ✔ ·
+approve/reject/suspend venue ✔ · approve/reject/pause offer ✔ · platform overview
+metrics ✔ · every decision audited in the same transaction ✔
 
-**Business onboarding** — the self-serve flow (create business → venue → offer →
-schedule → submit for approval) has contracts and database tables but no
-endpoints. Venues are onboarded by seeding today.
+Still to build in the console UI: the users, bookings and payments *browsing*
+views. The endpoints they need beyond `/v1/admin/overview` do not exist yet.
+
+**Business onboarding** — create business ✔ · add venue ✔ · create offer ✔ ·
+recurring schedule that materialises real slots ✔ · submit for approval ✔ ·
+pause/resume ✔ · cancel a slot and release its bookings ✔
+
+The business web app currently exposes the dashboard, bookings and CRM; the
+onboarding wizard UI on top of these endpoints is not built.
 
 ---
 
@@ -202,8 +209,9 @@ Stated plainly rather than marked done:
 3. **This path contains spaces** (`Site Web /Try Sport`). Metro, Gradle and Xcode
    break on it. Move the repo to a space-free path before any native mobile build.
 4. **Payments are wired but unexercised** against real Stripe test keys.
-5. **Admin moderation and business self-serve onboarding are not built** (see the
-   checklists above). These are the largest remaining functional gaps.
+5. **Two UI surfaces lag their APIs**: the business onboarding wizard and the
+   admin browsing views. The endpoints exist and are role-checked; the screens do
+   not.
 6. **Deferred by design:** referrals, TRY+, corporate, waitlist, dynamic pricing,
    Stripe Connect payouts, Meta CAPI. Flags exist; implementations do not.
 
@@ -224,6 +232,10 @@ that were not:
   user's trial allowance at that venue permanently. Both are now released by a
   scheduled sweep, verified to fail gracefully and keep serving when the database
   is unreachable.
+- **Nothing expanded recurring schedules into slots.** `schedules` and
+  `expanded_until` existed, but only the seed ever created slots — so a real
+  business could define "every Monday at 19:00" and never receive a booking. Now
+  expanded on write and rolled forward nightly, idempotently.
 
 ---
 
