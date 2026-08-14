@@ -2,6 +2,7 @@ export * from './enums.js';
 export * from './errors.js';
 export * from './reservation-state-machine.js';
 export * from './trial-eligibility.js';
+export * from './lead-pipeline.js';
 export * from './cancellation-policy.js';
 export * from './ranking.js';
 export * from './analytics-events.js';

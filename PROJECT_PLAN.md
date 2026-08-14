@@ -18,10 +18,11 @@ from scratch.
 | `@try/utils`, `@try/contracts` | Built, 84 tests |
 | `@try/database` — schema, migrations, seed | Built, not executed (see §11) |
 | `@try/config`, `@try/logger` | Built, tested |
-| API — auth, discovery, offers, booking, check-in, payments | Built, 22 tests |
-| Mobile consumer app | Built — discovery → booking → QR slice |
+| API — auth, discovery, offers, booking, check-in, payments, reviews, favourites | Built, 29 tests |
+| Reservation lifecycle jobs | Built — hold expiry, completion, no-shows |
+| Mobile consumer app | Built — discovery → booking → QR → review |
 | Business web app | Built — dashboard, bookings, check-in, CRM |
-| Admin web app | Built — moderation, metrics |
+| Admin web app | Built — shell and access control; moderation endpoints pending |
 
 ---
 
@@ -177,8 +178,14 @@ continuation answer ✔
 receive bookings ✔ · today's list ✔ · validate QR ✔ · mark no-show ✔ · leads ✔ ·
 update status ✔ · mark converted ✔ · analytics ✔
 
-**Admin** — secure login ✔ · review business ✔ · approve/reject venue ✔ ·
-approve/reject offer ✔ · users ✔ · bookings ✔ · payments ✔ · metrics ✔ · suspend ✔
+**Admin** — secure login ✔ · role enforced server-side ✔ · **moderation,
+metrics, user/booking/payment views: NOT built.** The console renders its shell
+and correctly refuses non-admins, but the endpoints behind those sections do not
+exist yet. This checklist previously claimed them as done; that was wrong.
+
+**Business onboarding** — the self-serve flow (create business → venue → offer →
+schedule → submit for approval) has contracts and database tables but no
+endpoints. Venues are onboarded by seeding today.
 
 ---
 
@@ -195,8 +202,28 @@ Stated plainly rather than marked done:
 3. **This path contains spaces** (`Site Web /Try Sport`). Metro, Gradle and Xcode
    break on it. Move the repo to a space-free path before any native mobile build.
 4. **Payments are wired but unexercised** against real Stripe test keys.
-5. **Deferred by design:** referrals, TRY+, corporate, waitlist, dynamic pricing,
+5. **Admin moderation and business self-serve onboarding are not built** (see the
+   checklists above). These are the largest remaining functional gaps.
+6. **Deferred by design:** referrals, TRY+, corporate, waitlist, dynamic pricing,
    Stripe Connect payouts, Meta CAPI. Flags exist; implementations do not.
+
+### Fixed after the first pass
+
+An audit of my own checklist found four things claimed or implied as working
+that were not:
+
+- **No review endpoint existed**, despite "leave review ✔" and "continuation ✔".
+  The mobile booking screen linked to a route that did not exist. Now built,
+  including the forward-only lead rule (a late review must not drag a converted
+  customer back to "interested"), unit-tested in `lead-pipeline.test.ts`.
+- **No favourites endpoint existed**, despite a favourites tab and an
+  `isFavorite` field on every offer. Now built, with optimistic UI.
+- **Nothing ever completed a trial.** `CHECKED_IN` was terminal in practice, so
+  `TrialCompleted` never fired and every venue's funnel stalled at "attended".
+- **Nothing read `hold_expires_at`.** An abandoned payment held a seat *and* the
+  user's trial allowance at that venue permanently. Both are now released by a
+  scheduled sweep, verified to fail gracefully and keep serving when the database
+  is unreachable.
 
 ---
 

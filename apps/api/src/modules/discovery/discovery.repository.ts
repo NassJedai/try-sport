@@ -306,6 +306,51 @@ export class DiscoveryRepository {
     }[];
   }
 
+  /**
+   * Hydrates specific offers into the same card shape the feed uses.
+   *
+   * Used by the favourites tab. Deliberately does not filter on ACTIVE status: a
+   * user who saved something that has since been paused should still see it,
+   * marked unavailable, rather than have it vanish without explanation.
+   */
+  async findOffersByIds(offerIds: string[]): Promise<OfferCardRow[]> {
+    if (offerIds.length === 0) return [];
+
+    const rows = await this.db.execute<OfferCardRow>(sql`
+      SELECT
+        o.id, o.title, o.experience_type, o.price_amount, o.reference_price_amount,
+        o.currency, o.duration_minutes, o.published_at, o.trial_count, o.conversion_count,
+        c.slug AS category_slug, c.name AS category_name,
+        v.id AS venue_id, v.name AS venue_name,
+        v.latitude AS venue_latitude, v.longitude AS venue_longitude,
+        d.name AS district_name,
+        v.average_rating_hundredths AS average_rating, v.review_count,
+        NULL::double precision AS distance_meters,
+        next_slot.start_at AS next_slot_at,
+        img.storage_key AS image_key, img.width AS image_width,
+        img.height AS image_height, img.blurhash AS image_blurhash
+      FROM offers o
+      JOIN venues v ON v.id = o.venue_id
+      JOIN categories c ON c.id = o.category_id
+      LEFT JOIN districts d ON d.id = v.district_id
+      LEFT JOIN LATERAL (
+        SELECT s.start_at FROM slots s
+        WHERE s.offer_id = o.id AND s.status = 'OPEN'
+          AND s.reserved_count < s.capacity AND s.start_at > now()
+        ORDER BY s.start_at ASC LIMIT 1
+      ) next_slot ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT oi.storage_key, oi.width, oi.height, oi.blurhash
+        FROM offer_images oi WHERE oi.offer_id = o.id
+        ORDER BY oi.sort_order ASC LIMIT 1
+      ) img ON TRUE
+      WHERE o.id = ANY(${offerIds}::uuid[])
+        AND o.deleted_at IS NULL
+    `);
+
+    return rows as unknown as OfferCardRow[];
+  }
+
   /** Resolves the city whose centroid is closest, for the home header. */
   async resolveCity(input: {
     latitude: number | null;

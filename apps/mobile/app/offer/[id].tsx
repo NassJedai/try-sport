@@ -20,6 +20,7 @@ import { Button } from '@/components/Button';
 import { Skeleton } from '@/components/Skeleton';
 import { ErrorState } from '@/components/States';
 import { Rating } from '@/components/Rating';
+import { useFavorite } from '@/hooks/use-favorite';
 
 export default function OfferDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -28,6 +29,7 @@ export default function OfferDetailScreen() {
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const [selectedSlot, setSelectedSlot] = useState<SlotDto | null>(null);
+  const favorite = useFavorite(id);
 
   const offerQuery = useQuery({
     queryKey: queryKeys.offers.detail(id),
@@ -101,16 +103,35 @@ export default function OfferDetailScreen() {
   return (
     <View style={[styles.fill, { backgroundColor: theme.background }]}>
       <ScrollView contentContainerStyle={{ paddingBottom: 140 }}>
-        {offer.gallery[0] ? (
-          <Image
-            source={{ uri: offer.gallery[0].medium }}
-            style={styles.hero}
-            resizeMode="cover"
-            accessible={false}
-          />
-        ) : (
-          <View style={[styles.hero, { backgroundColor: theme.surfaceMuted }]} />
-        )}
+        <View>
+          {offer.gallery[0] ? (
+            <Image
+              source={{ uri: offer.gallery[0].medium }}
+              style={styles.hero}
+              resizeMode="cover"
+              accessible={false}
+            />
+          ) : (
+            <View style={[styles.hero, { backgroundColor: theme.surfaceMuted }]} />
+          )}
+
+          {/* Optimistic: the heart fills on tap and rolls back only if the
+              server rejects it. Safe here because favouriting costs nothing. */}
+          <Pressable
+            onPress={() => favorite.toggle(offer.isFavorite)}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: offer.isFavorite }}
+            accessibilityLabel={
+              offer.isFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris'
+            }
+            hitSlop={12}
+            style={[styles.favorite, { backgroundColor: theme.background }]}
+          >
+            <Text style={{ fontSize: 22, color: offer.isFavorite ? theme.danger : theme.textTertiary }}>
+              {offer.isFavorite ? '♥' : '♡'}
+            </Text>
+          </Pressable>
+        </View>
 
         <View style={styles.body}>
           <Text style={[styles.title, { color: theme.textPrimary }]} accessibilityRole="header">
@@ -361,6 +382,16 @@ function skillLabel(level: string): string {
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   hero: { width: '100%', aspectRatio: 4 / 3 },
+  favorite: {
+    position: 'absolute',
+    top: spacing.xl,
+    right: spacing.base,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   body: { padding: spacing.base, gap: spacing.sm },
   title: {
     fontSize: typography.title1.fontSize,

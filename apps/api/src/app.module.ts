@@ -1,5 +1,6 @@
 import { Module, type MiddlewareConsumer, type NestModule } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
 import type { AppConfig } from '@try/config';
 
 import { ConfigModule, CONFIG } from './common/config.module.js';
@@ -44,6 +45,11 @@ import {
 import { AuditService } from './modules/admin/audit.service.js';
 import { BusinessService } from './modules/business/business.service.js';
 import { BusinessController } from './modules/business/business.controller.js';
+import { ReviewService } from './modules/reviews/review.service.js';
+import { ReviewController } from './modules/reviews/review.controller.js';
+import { FavoriteService } from './modules/favorites/favorite.service.js';
+import { FavoriteController } from './modules/favorites/favorite.controller.js';
+import { LifecycleJobsService } from './modules/jobs/lifecycle-jobs.service.js';
 import { HealthController } from './modules/health/health.controller.js';
 import { BookingLifecycleListener } from './modules/events/booking-lifecycle.listener.js';
 
@@ -57,7 +63,7 @@ import { BookingLifecycleListener } from './modules/events/booking-lifecycle.lis
  * stage than independent deployability.
  */
 @Module({
-  imports: [ConfigModule, LoggerModule, DatabaseModule],
+  imports: [ConfigModule, LoggerModule, DatabaseModule, ScheduleModule.forRoot()],
   controllers: [
     HealthController,
     AuthController,
@@ -66,6 +72,8 @@ import { BookingLifecycleListener } from './modules/events/booking-lifecycle.lis
     BookingController,
     CheckInController,
     BusinessController,
+    ReviewController,
+    FavoriteController,
     WebhookController,
   ],
   providers: [
@@ -90,6 +98,9 @@ import { BookingLifecycleListener } from './modules/events/booking-lifecycle.lis
     BookingQueryService,
     CheckInService,
     BusinessService,
+    ReviewService,
+    FavoriteService,
+    LifecycleJobsService,
 
     PaymentService,
     {
