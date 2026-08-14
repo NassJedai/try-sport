@@ -40,13 +40,13 @@
 :root {
   --background: #f6f8fa;
   --foreground: #0b0f14;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0b0f14;
-    --foreground: #f2f5f8;
-  }
+  /**
+   * Pinned to light for now. The web token set is light-only, so honouring the
+   * OS dark preference produced white inputs floating on a dark page — worse
+   * than no dark mode. Remove this (and the fixed values above) when the dark
+   * token set from @try/design-tokens is mirrored into this file.
+   */
+  color-scheme: light;
 }
 
 body {

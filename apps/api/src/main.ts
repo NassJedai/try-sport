@@ -9,8 +9,17 @@ import type { Logger } from '@try/logger';
 import { AppModule } from './app.module.js';
 import { CONFIG } from './common/config.module.js';
 import { LOGGER } from './common/logger.module.js';
+import { loadEnvFiles } from './common/load-env.js';
 
 async function bootstrap(): Promise<void> {
+  /**
+   * Before anything else: CONFIG is produced by a factory that Nest invokes
+   * during `NestFactory.create`, and that factory validates and throws. Loading
+   * .env any later would mean the process refuses to start with a perfectly
+   * good .env sitting next to it.
+   */
+  loadEnvFiles();
+
   const adapter = new FastifyAdapter({
     // The ingress terminates TLS and sets X-Forwarded-For; without this the
     // rate limiter would see every request as coming from the proxy.
@@ -53,7 +62,19 @@ async function bootstrap(): Promise<void> {
     origin: config.CORS_ALLOWED_ORIGINS,
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key', 'X-Request-Id'],
+    /**
+     * Must list every header the clients actually send. `X-Client` is set by
+     * @try/api-client for diagnostics, and omitting it here failed the CORS
+     * preflight for *every* browser request — the web apps could not reach the
+     * API at all. Kept in sync with ApiClient's header construction.
+     */
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'Idempotency-Key',
+      'X-Request-Id',
+      'X-Client',
+    ],
     exposedHeaders: ['X-Request-Id', 'X-RateLimit-Remaining', 'Retry-After'],
     maxAge: 86_400,
   });

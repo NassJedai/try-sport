@@ -1,5 +1,7 @@
 import type { NextConfig } from 'next';
 
+const isDevelopment = process.env.NODE_ENV !== 'production';
+
 const config: NextConfig = {
   reactStrictMode: true,
   // Workspace packages ship TypeScript source rather than build output, so Next
@@ -19,7 +21,12 @@ const config: NextConfig = {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline'",
+              /**
+               * React's development build uses eval() to reconstruct call stacks
+               * for its debugging overlay. Allowing it in dev only keeps the
+               * production policy strict, where React never uses eval at all.
+               */
+              `script-src 'self' 'unsafe-inline'${isDevelopment ? " 'unsafe-eval'" : ''}`,
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: https:",
               "connect-src 'self' http://localhost:3000 https://api.try.be",
