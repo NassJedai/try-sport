@@ -20,7 +20,17 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "incremental": true
+    "incremental": true,
+    /**
+     * Colocated with the emitted output on purpose.
+     *
+     * With the default location (next to tsconfig.json), deleting `dist` leaves
+     * the build info behind, so tsc concludes the output is still current and
+     * emits nothing — `nest build` then exits 0 having produced no dist at all.
+     * Keeping it inside the output directory makes the cache and the artefacts
+     * share a fate.
+     */
+    "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
   "exclude": ["node_modules", "dist", "build", ".next", ".turbo"]
 }

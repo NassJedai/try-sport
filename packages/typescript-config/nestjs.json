@@ -10,6 +10,13 @@
     "outDir": "dist",
     "rootDir": "src",
     "isolatedModules": false,
-    "verbatimModuleSyntax": false
+    "verbatimModuleSyntax": false,
+    /**
+     * Off deliberately. `nest build` wipes outDir before compiling, and the
+     * interaction with tsc's incremental cache produced *partial* emits — a dist
+     * containing main.js and nothing else, with the build still exiting 0. A
+     * three-second full compile is worth far more than that failure mode.
+     */
+    "incremental": false
   }
 }

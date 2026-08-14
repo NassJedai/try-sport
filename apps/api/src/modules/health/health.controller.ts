@@ -1,4 +1,4 @@
-import { Controller, Get, Inject } from '@nestjs/common';
+import { Controller, Get, Inject, VERSION_NEUTRAL } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createDatabase } from '@try/database';
 import type { Logger } from '@try/logger';
@@ -8,8 +8,12 @@ import { LOGGER } from '../../common/logger.module.js';
 
 type DatabaseHandle = ReturnType<typeof createDatabase>;
 
+/**
+ * Version-neutral on purpose: orchestrators and load balancers are configured
+ * with `/health` and `/ready` and must not have to track an API version.
+ */
 @ApiTags('health')
-@Controller()
+@Controller({ version: VERSION_NEUTRAL })
 export class HealthController {
   constructor(
     @Inject(DATABASE_HANDLE) private readonly database: DatabaseHandle,

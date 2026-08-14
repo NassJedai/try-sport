@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { DEFAULT_TIME_ZONE, addMinutes, slugify, zonedTimeToUtc } from '@try/utils';
+import { DEFAULT_TIME_ZONE, addMinutes, zonedTimeToUtc } from '@try/utils';
 import { createDatabase } from '../client.js';
 import * as schema from '../schema/index.js';
 import { BRUSSELS_DISTRICTS, BUSINESSES, CATEGORIES, OFFERS, VENUES } from './seed-data.js';

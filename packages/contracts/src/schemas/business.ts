@@ -145,6 +145,9 @@ export type UpdateLeadDto = z.infer<typeof updateLeadSchema>;
 export const businessBookingSchema = z.object({
   id: uuidSchema,
   status: z.enum(RESERVATION_STATUSES),
+  /** Needed by the front desk: check-in is always scoped to a specific venue. */
+  venueId: uuidSchema,
+  venueName: z.string(),
   attendeeFirstName: z.string(),
   isFirstVisit: z.boolean(),
   offerTitle: z.string(),

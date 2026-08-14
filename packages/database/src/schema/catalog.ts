@@ -28,7 +28,6 @@ import {
   cancellationPolicyEnum,
   currencyEnum,
   experienceTypeEnum,
-  localeEnum,
   offerStatusEnum,
   skillLevelEnum,
   trialRuleEnum,

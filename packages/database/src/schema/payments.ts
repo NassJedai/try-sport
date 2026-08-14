@@ -2,7 +2,7 @@ import { sql } from 'drizzle-orm';
 import { check, index, integer, jsonb, pgTable, text, uniqueIndex, varchar } from 'drizzle-orm/pg-core';
 import { createdAt, fkId, primaryId, timestampColumn, updatedAt } from './columns.js';
 import { currencyEnum, paymentStatusEnum } from './enums.js';
-import { businesses, venues } from './catalog.js';
+import { businesses } from './catalog.js';
 import { reservations } from './booking.js';
 import { users } from './identity.js';
 

@@ -1,0 +1,65 @@
+@import 'tailwindcss';
+
+/**
+ * Design tokens mirrored into CSS custom properties.
+ *
+ * The values are the same ones @try/design-tokens exposes to the mobile app —
+ * shared semantics, platform-appropriate implementations. Tailwind v4 reads
+ * these through @theme, so `bg-surface` and the React Native `theme.surface`
+ * resolve to the same colour.
+ */
+@theme {
+  --color-ink-900: #0b0f14;
+  --color-ink-700: #232b36;
+  --color-ink-500: #5a6675;
+  --color-ink-400: #8593a3;
+  --color-ink-200: #d9e0e7;
+  --color-ink-100: #ecf0f4;
+  --color-ink-50: #f6f8fa;
+
+  --color-accent: #0e8a61;
+  --color-accent-pressed: #0a6e4e;
+  --color-accent-subtle: #e8f7f1;
+
+  --color-price: #c2410c;
+  --color-success: #15803d;
+  --color-success-subtle: #eaf7ef;
+  --color-warning: #a16207;
+  --color-warning-subtle: #fef7e6;
+  --color-danger: #b91c1c;
+  --color-danger-subtle: #feecec;
+
+  --color-surface: #ffffff;
+  --color-surface-muted: #ecf0f4;
+  --color-border: #d9e0e7;
+
+  --radius-card: 14px;
+  --radius-pill: 999px;
+}
+
+:root {
+  --background: #f6f8fa;
+  --foreground: #0b0f14;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0b0f14;
+    --foreground: #f2f5f8;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Visible focus is not optional: this dashboard is operated with a keyboard at a
+   busy front desk. */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}

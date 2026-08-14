@@ -20,28 +20,18 @@ async function bootstrap(): Promise<void> {
     logger: false,
   });
 
-  /**
-   * Stripe signs the exact bytes it sent, so the webhook route needs the raw
-   * body. Capturing it only for that route keeps every other endpoint on the
-   * normal parsed-JSON path.
-   */
-  adapter.getInstance().addContentTypeParser(
-    'application/json',
-    { parseAs: 'buffer' },
-    (request, body: Buffer, done) => {
-      if (request.url.includes('/webhooks/')) {
-        (request as { rawBody?: Buffer }).rawBody = body;
-      }
-      try {
-        done(null, body.length > 0 ? JSON.parse(body.toString('utf8')) : {});
-      } catch (error) {
-        done(error as Error, undefined);
-      }
-    },
-  );
-
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, adapter, {
     bufferLogs: true,
+    /**
+     * Stripe signs the exact bytes it sent, so the webhook handler must verify
+     * against the raw body rather than a re-serialised object.
+     *
+     * Nest's own `rawBody` option is used instead of registering a custom
+     * content-type parser: Fastify installs its JSON parser when the instance is
+     * created, and adding a second one for the same type throws
+     * FST_ERR_CTP_ALREADY_PRESENT at boot.
+     */
+    rawBody: true,
   });
 
   const config = app.get<AppConfig>(CONFIG);

@@ -42,6 +42,8 @@ import {
   UnconfiguredPaymentProvider,
 } from './modules/payments/stripe.provider.js';
 import { AuditService } from './modules/admin/audit.service.js';
+import { BusinessService } from './modules/business/business.service.js';
+import { BusinessController } from './modules/business/business.controller.js';
 import { HealthController } from './modules/health/health.controller.js';
 import { BookingLifecycleListener } from './modules/events/booking-lifecycle.listener.js';
 
@@ -63,6 +65,7 @@ import { BookingLifecycleListener } from './modules/events/booking-lifecycle.lis
     OfferController,
     BookingController,
     CheckInController,
+    BusinessController,
     WebhookController,
   ],
   providers: [
@@ -86,6 +89,7 @@ import { BookingLifecycleListener } from './modules/events/booking-lifecycle.lis
     BookingService,
     BookingQueryService,
     CheckInService,
+    BusinessService,
 
     PaymentService,
     {
