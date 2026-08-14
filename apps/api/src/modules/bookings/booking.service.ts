@@ -427,13 +427,34 @@ export class BookingService {
   }
 }
 
-/** postgres.js surfaces constraint violations as SQLSTATE 23505. */
+/**
+ * Detects a unique-constraint violation (SQLSTATE 23505).
+ *
+ * Walks the `cause` chain: Drizzle wraps the postgres.js error in a
+ * DrizzleQueryError, so the SQLSTATE lives one level down. Reading `error.code`
+ * directly worked against no database at all — the first run against a real
+ * Postgres showed every duplicate-booking detection silently missing.
+ */
 export function isUniqueViolation(error: unknown, constraintName?: string): boolean {
-  if (typeof error !== 'object' || error === null) return false;
-  const candidate = error as { code?: string; constraint_name?: string; constraint?: string };
-  if (candidate.code !== '23505') return false;
-  if (!constraintName) return true;
-  return (
-    candidate.constraint_name === constraintName || candidate.constraint === constraintName
-  );
+  let current: unknown = error;
+
+  for (let depth = 0; depth < 5 && typeof current === 'object' && current !== null; depth += 1) {
+    const candidate = current as {
+      code?: string;
+      constraint_name?: string;
+      constraint?: string;
+      cause?: unknown;
+    };
+
+    if (candidate.code === '23505') {
+      if (!constraintName) return true;
+      return (
+        candidate.constraint_name === constraintName || candidate.constraint === constraintName
+      );
+    }
+
+    current = candidate.cause;
+  }
+
+  return false;
 }

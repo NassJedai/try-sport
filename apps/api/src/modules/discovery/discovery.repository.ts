@@ -43,6 +43,21 @@ export interface OfferCardRow extends Record<string, unknown> {
   conversion_count: number;
 }
 
+/**
+ * Raw-SQL rows arrive with `timestamptz` as *strings*: postgres.js only maps
+ * types through the drizzle schema, and these queries bypass it by design.
+ * Normalising here keeps the declared `Date | null` honest — the first real
+ * request against a live database crashed in the ranking code because this
+ * type was a lie.
+ */
+function normalizeOfferCardRow(row: OfferCardRow): OfferCardRow {
+  return {
+    ...row,
+    published_at: row.published_at ? new Date(row.published_at as unknown as string) : null,
+    next_slot_at: row.next_slot_at ? new Date(row.next_slot_at as unknown as string) : null,
+  };
+}
+
 export interface NearbyQuery {
   latitude: number | null;
   longitude: number | null;
@@ -138,7 +153,11 @@ export class DiscoveryRepository {
      * not the API process's clock: several API instances with a few seconds of
      * drift would otherwise disagree about whether a 19:00 class is still bookable.
      */
-    const slotWindowStart = query.availableFrom ? sql`${query.availableFrom}` : sql`now()`;
+    // Chaînes ISO, jamais d'objets Date : les fragments bruts contournent
+    // l'encodeur de drizzle et postgres.js refuse une instance de Date.
+    const slotWindowStart = query.availableFrom
+      ? sql`${query.availableFrom.toISOString()}`
+      : sql`now()`;
     const slotConditions = [
       sql`s.offer_id = o.id`,
       sql`s.status = 'OPEN'`,
@@ -146,7 +165,7 @@ export class DiscoveryRepository {
       sql`s.start_at > ${slotWindowStart}`,
     ];
     if (query.availableTo) {
-      slotConditions.push(sql`s.start_at <= ${query.availableTo}`);
+      slotConditions.push(sql`s.start_at <= ${query.availableTo.toISOString()}`);
     }
 
     const distanceExpression =
@@ -208,7 +227,7 @@ export class DiscoveryRepository {
       OFFSET ${query.cursorOffset ?? 0}
     `);
 
-    return rows as unknown as OfferCardRow[];
+    return (rows as unknown as OfferCardRow[]).map(normalizeOfferCardRow);
   }
 
   private buildOrderBy(sort: NonNullable<NearbyQuery['sort']>, hasDistance: boolean) {
@@ -348,7 +367,7 @@ export class DiscoveryRepository {
         AND o.deleted_at IS NULL
     `);
 
-    return rows as unknown as OfferCardRow[];
+    return (rows as unknown as OfferCardRow[]).map(normalizeOfferCardRow);
   }
 
   /** Resolves the city whose centroid is closest, for the home header. */

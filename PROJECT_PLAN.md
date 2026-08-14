@@ -200,12 +200,19 @@ onboarding wizard UI on top of these endpoints is not built.
 
 Stated plainly rather than marked done:
 
-1. **The database has never been started.** This machine has no Postgres, Docker
-   or Homebrew. Schema, migrations and seed are written and typecheck, but have
-   not been executed. First run: `pnpm db:migrate && pnpm db:seed`.
-2. **Integration tests report as skipped without `TEST_DATABASE_URL`** — never as
-   passed. The 7 concurrency tests are the ones that matter most and are the ones
-   still unproven on real hardware.
+1. ~~The database has never been started~~ **Résolu.** PostgreSQL 17.11 +
+   PostGIS 3.5 tourne en local (binaires Postgres.app extraits sans root,
+   cluster dans `~/.try-sport`, port 5433, `scripts/db.sh`). Les 3 migrations et
+   le seed complet sont passés ; les **7 tests de concurrence passent contre la
+   vraie base** ; le parcours OTP → dashboard → CRM est vérifié dans le
+   navigateur avec les données réelles.
+2. ~~Integration tests skipped~~ **Résolu — et ils ont payé.** Le premier run
+   réel a trouvé quatre vrais bugs : Drizzle enveloppe les erreurs Postgres, donc
+   `isUniqueViolation` lisait `error.code` au mauvais niveau et la détection de
+   double réservation était silencieusement cassée ; et les frontières SQL brut
+   mentaient sur les dates dans les deux sens (les `timestamptz` sortent en
+   chaînes, les paramètres `Date` sont refusés à l'entrée) — crash du ranking et
+   des métriques business au premier appel réel.
 3. **This path contains spaces** (`Site Web /Try Sport`). Metro, Gradle and Xcode
    break on it. Move the repo to a space-free path before any native mobile build.
 4. **Payments are wired but unexercised** against real Stripe test keys.

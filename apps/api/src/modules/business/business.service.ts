@@ -63,6 +63,16 @@ export class BusinessService {
       ? sql`AND r.venue_id = ${input.venueId}`
       : sql``;
 
+    /**
+     * Les paramètres des requêtes SQL brutes doivent être des chaînes : le
+     * driver postgres.js ne sérialise les objets Date qu'à travers le schéma
+     * drizzle, jamais dans les fragments bruts — le premier appel réel a planté
+     * avec « Received an instance of Date ». Symétrique du côté lecture, où les
+     * timestamptz arrivent en chaînes.
+     */
+    const from = input.from.toISOString();
+    const to = input.to.toISOString();
+
     const [current] = (await this.db.execute(sql`
       SELECT
         COUNT(*) FILTER (
@@ -72,8 +82,8 @@ export class BusinessService {
         COUNT(*) FILTER (WHERE r.status = 'NO_SHOW')::int AS no_shows
       FROM reservations r
       WHERE r.business_id = ${input.businessId}
-        AND r.slot_start_at >= ${input.from}
-        AND r.slot_start_at <= ${input.to}
+        AND r.slot_start_at >= ${from}
+        AND r.slot_start_at <= ${to}
         ${venueFilter}
     `)) as unknown as { trials: number; check_ins: number; no_shows: number }[];
 
@@ -84,8 +94,8 @@ export class BusinessService {
           AS attributed_revenue
       FROM leads l
       WHERE l.business_id = ${input.businessId}
-        AND l.created_at >= ${input.from}
-        AND l.created_at <= ${input.to}
+        AND l.created_at >= ${from}
+        AND l.created_at <= ${to}
         ${input.venueId ? sql`AND l.venue_id = ${input.venueId}` : sql``}
     `)) as unknown as { conversions: number; attributed_revenue: number }[];
 

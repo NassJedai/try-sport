@@ -6,6 +6,7 @@ import {
   connect,
   createTestUser,
   describeIfDatabase,
+  expectConstraint,
   seedBookableSlot,
 } from './integration-setup.js';
 
@@ -108,7 +109,7 @@ describeIfDatabase('booking concurrency', () => {
           .update(schema.slots)
           .set({ reservedCount: sql`${schema.slots.reservedCount} + 1` })
           .where(eq(schema.slots.id, slot.slotId)),
-      ).rejects.toThrow(/slots_reserved_within_capacity/);
+      ).rejects.toSatisfy(expectConstraint('slots_reserved_within_capacity'));
     } finally {
       await slot.cleanup();
     }
@@ -119,7 +120,7 @@ describeIfDatabase('booking concurrency', () => {
     try {
       await expect(
         db.update(schema.slots).set({ reservedCount: -1 }).where(eq(schema.slots.id, slot.slotId)),
-      ).rejects.toThrow(/slots_reserved_within_capacity/);
+      ).rejects.toSatisfy(expectConstraint('slots_reserved_within_capacity'));
     } finally {
       await slot.cleanup();
     }
@@ -148,8 +149,8 @@ describeIfDatabase('booking concurrency', () => {
 
       // The partial unique index is what makes a double tap safe across
       // two API instances, where an in-process guard would not help.
-      await expect(db.insert(schema.reservations).values(values)).rejects.toThrow(
-        /reservations_user_slot_live_key/,
+      await expect(db.insert(schema.reservations).values(values)).rejects.toSatisfy(
+        expectConstraint('reservations_user_slot_live_key'),
       );
     } finally {
       await db.execute(sql`DELETE FROM reservations WHERE user_id = ${user.id}`);
@@ -230,7 +231,7 @@ describeIfDatabase('booking concurrency', () => {
           merchantAmount: 2000, // 420 + 2000 != 2800
           currency: 'EUR',
         }),
-      ).rejects.toThrow(/payments_split_reconciles/);
+      ).rejects.toSatisfy(expectConstraint('payments_split_reconciles'));
 
       await expect(
         db.insert(schema.payments).values({

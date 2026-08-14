@@ -146,6 +146,26 @@ export async function seedBookableSlot(
   };
 }
 
+/**
+ * Matcher for constraint violations.
+ *
+ * Drizzle wraps the postgres.js error, so the constraint name is not in the
+ * top-level message — it is on the cause. Matching on `String(error)` alone made
+ * four of these tests fail on their very first run against a real database.
+ */
+export function expectConstraint(name: string): (error: unknown) => boolean {
+  return (error: unknown): boolean => {
+    let current: unknown = error;
+    for (let depth = 0; depth < 5 && current; depth += 1) {
+      const candidate = current as { message?: string; constraint_name?: string; cause?: unknown };
+      if (candidate.constraint_name === name) return true;
+      if (candidate.message?.includes(name)) return true;
+      current = candidate.cause;
+    }
+    return false;
+  };
+}
+
 export async function createTestUser(db: Database): Promise<{ id: string }> {
   const [user] = await db
     .insert(schema.users)
