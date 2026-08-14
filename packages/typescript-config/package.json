@@ -1,0 +1,6 @@
+{
+  "name": "@try/typescript-config",
+  "version": "0.1.0",
+  "private": true,
+  "files": ["base.json", "library.json", "nestjs.json", "nextjs.json", "react-native.json"]
+}

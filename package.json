@@ -1,0 +1,33 @@
+{
+  "name": "try-sport",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.15.4",
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:integration": "turbo run test:integration",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\"",
+    "api": "pnpm --filter @try/api dev",
+    "mobile": "pnpm --filter @try/mobile start",
+    "business": "pnpm --filter @try/business dev",
+    "admin": "pnpm --filter @try/admin dev",
+    "db:generate": "pnpm --filter @try/database generate",
+    "db:migrate": "pnpm --filter @try/database migrate",
+    "db:seed": "pnpm --filter @try/database seed",
+    "db:studio": "pnpm --filter @try/database studio"
+  },
+  "devDependencies": {
+    "prettier": "3.4.2",
+    "turbo": "2.10.10",
+    "typescript": "5.9.3"
+  }
+}
