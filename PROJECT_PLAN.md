@@ -220,8 +220,13 @@ Stated plainly rather than marked done:
    iPhone (`pnpm mobile` puis scanner le QR — l'app trouve l'API sur le réseau
    local automatiquement via hostUri), soit accepter la licence Xcode
    (`sudo xcodebuild -license`) et installer un runtime simulateur — les deux
-   demandent les droits admin de la machine. Versions RN alignées sur le SDK
-   Expo 57 (0.87 pinné à tort avait supprimé rn-get-polyfills).
+   demandent les droits admin de la machine. Épinglé sur le **SDK Expo 56**, pas 57 : 57
+   était `latest` sur npm le jour de sa sortie, mais l'Expo Go de l'App Store ne
+   le supporte pas encore — l'app refusait de s'ouvrir sur un vrai téléphone
+   (« requires a newer version of Expo Go »). Règle générale tirée de cet
+   épisode et du précédent sur react-native : pour l'écosystème Expo/RN,
+   « dernière version npm » n'est pas « version supportée » — c'est
+   `expo install` qui fait foi.
 4. **Payments are wired but unexercised** against real Stripe test keys.
 5. **Two UI surfaces lag their APIs**: the business onboarding wizard and the
    admin browsing views. The endpoints exist and are role-checked; the screens do

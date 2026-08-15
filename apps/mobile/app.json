@@ -21,20 +21,35 @@
         "NSLocationWhenInUseUsageDescription": "TRY utilise ta position pour te montrer les expériences sportives disponibles autour de toi.",
         "UIBackgroundModes": []
       },
-      "associatedDomains": ["applinks:try.be", "applinks:www.try.be"]
+      "associatedDomains": [
+        "applinks:try.be",
+        "applinks:www.try.be"
+      ]
     },
     "android": {
       "package": "be.try.app",
       "adaptiveIcon": {
         "backgroundColor": "#0B0F14"
       },
-      "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"],
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ],
       "intentFilters": [
         {
           "action": "VIEW",
           "autoVerify": true,
-          "data": [{ "scheme": "https", "host": "try.be", "pathPrefix": "/o" }],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "data": [
+            {
+              "scheme": "https",
+              "host": "try.be",
+              "pathPrefix": "/o"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },
@@ -46,7 +61,8 @@
         {
           "locationWhenInUsePermission": "TRY utilise ta position pour te montrer les expériences sportives disponibles autour de toi."
         }
-      ]
+      ],
+      "expo-status-bar"
     ],
     "experiments": {
       "typedRoutes": true
