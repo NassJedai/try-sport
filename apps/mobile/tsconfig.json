@@ -2,11 +2,27 @@
   "extends": "@try/typescript-config/react-native.json",
   "compilerOptions": {
     "baseUrl": ".",
-    "types": ["react", "expo"],
+    "types": [
+      "react",
+      "expo"
+    ],
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": [
+        "src/*"
+      ]
     }
   },
-  "include": ["app/**/*.ts", "app/**/*.tsx", "src/**/*.ts", "src/**/*.tsx", ".expo/types/**/*.ts"],
-  "exclude": ["node_modules", ".expo", "dist"]
+  "include": [
+    "app/**/*.ts",
+    "app/**/*.tsx",
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    ".expo/types/**/*.ts",
+    "expo-env.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    ".expo",
+    "dist"
+  ]
 }

@@ -45,9 +45,32 @@ class SecureTokenStore implements TokenStore {
 
 export const tokenStore = new SecureTokenStore();
 
-const apiUrl =
-  (Constants.expoConfig?.extra as { apiUrl?: string } | undefined)?.apiUrl ??
-  'http://localhost:3000';
+/**
+ * Résout l'URL de l'API pour l'environnement de développement.
+ *
+ * `localhost` ne veut rien dire depuis un vrai téléphone : il pointe vers le
+ * téléphone lui-même. Expo expose l'adresse du poste de dev via `hostUri`
+ * (« 192.168.x.x:8081 ») — on réutilise cet hôte avec le port de l'API, si bien
+ * que scanner le QR d'Expo Go suffit, sans rien configurer. Une URL explicite
+ * dans `extra.apiUrl` (staging, production) garde toujours la priorité.
+ */
+function resolveApiUrl(): string {
+  const explicit = (Constants.expoConfig?.extra as { apiUrl?: string } | undefined)?.apiUrl;
+
+  if (explicit && !explicit.includes('localhost')) return explicit;
+
+  const hostUri = Constants.expoConfig?.hostUri;
+  if (hostUri) {
+    const host = hostUri.split(':')[0];
+    if (host && host !== 'localhost' && host !== '127.0.0.1') {
+      return `http://${host}:3000`;
+    }
+  }
+
+  return explicit ?? 'http://localhost:3000';
+}
+
+const apiUrl = resolveApiUrl();
 
 let onUnauthenticated: (() => void) | undefined;
 

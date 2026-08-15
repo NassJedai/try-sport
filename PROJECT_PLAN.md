@@ -213,8 +213,15 @@ Stated plainly rather than marked done:
    mentaient sur les dates dans les deux sens (les `timestamptz` sortent en
    chaînes, les paramètres `Date` sont refusés à l'entrée) — crash du ranking et
    des métriques business au premier appel réel.
-3. **This path contains spaces** (`Site Web /Try Sport`). Metro, Gradle and Xcode
-   break on it. Move the repo to a space-free path before any native mobile build.
+3. **Mobile : compile et se sert, jamais affichée.** Metro compile les 2103
+   modules de l'app sans erreur et sert un bundle iOS de 11 Mo — malgré les
+   espaces du chemin, qui ne bloquent donc que les builds *natifs* (Gradle/Xcode),
+   pas le développement JS. Ce qui manque pour la VOIR : soit Expo Go sur un
+   iPhone (`pnpm mobile` puis scanner le QR — l'app trouve l'API sur le réseau
+   local automatiquement via hostUri), soit accepter la licence Xcode
+   (`sudo xcodebuild -license`) et installer un runtime simulateur — les deux
+   demandent les droits admin de la machine. Versions RN alignées sur le SDK
+   Expo 57 (0.87 pinné à tort avait supprimé rn-get-polyfills).
 4. **Payments are wired but unexercised** against real Stripe test keys.
 5. **Two UI surfaces lag their APIs**: the business onboarding wizard and the
    admin browsing views. The endpoints exist and are role-checked; the screens do
