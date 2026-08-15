@@ -2,7 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { queryKeys } from '@try/api-client';
-import { api } from '@/lib/api';
+import { api, apiClient } from '@/lib/api';
 
 /**
  * Admin overview.
@@ -51,12 +51,14 @@ export default function AdminOverviewPage() {
       <h1 className="text-3xl font-bold">Vue d’ensemble</h1>
       <p className="mt-1 text-ink-500">Santé de la marketplace, modération et métriques.</p>
 
-      <nav className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-label="Sections">
+      <OverviewMetrics />
+
+      <nav className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-label="Sections">
         {[
           { href: '/moderation', title: 'Modération', body: 'Valider les lieux et les offres soumis.' },
-          { href: '/businesses', title: 'Établissements', body: 'Comptes, venues et statuts.' },
-          { href: '/bookings', title: 'Réservations', body: 'Suivi des essais et des paiements.' },
-          { href: '/audit', title: 'Journal d’audit', body: 'Chaque action privilégiée, horodatée.' },
+          { href: '/users', title: 'Utilisateurs', body: 'Recherche par e-mail pour le support.' },
+          { href: '/bookings', title: 'Réservations', body: 'Dernières réservations, par statut.' },
+          { href: '/payments', title: 'Paiements', body: 'Encaissements, commission, remboursements.' },
         ].map((section) => (
           <a
             key={section.href}
@@ -68,11 +70,43 @@ export default function AdminOverviewPage() {
           </a>
         ))}
       </nav>
-
-      <p className="mt-10 rounded-[--radius-card] bg-warning-subtle p-4 text-sm text-warning">
-        Les métriques agrégées (MAU, GMV, taux de conversion plateforme) sont exposées par
-        l’endpoint admin dédié, qui n’est pas encore implémenté — voir PROJECT_PLAN.md §11.
-      </p>
     </main>
+  );
+}
+
+/** Les chiffres de santé de la marketplace, calculés en direct par l'API. */
+function OverviewMetrics() {
+  const { data, isLoading } = useQuery({
+    queryKey: ['admin', 'overview'],
+    queryFn: () => apiClient.get<Record<string, number>>('/v1/admin/overview'),
+  });
+
+  const tiles: { label: string; value: string | undefined }[] = [
+    { label: 'Utilisateurs', value: data?.users?.toString() },
+    { label: 'Actifs 30 j', value: data?.monthly_active_users?.toString() },
+    { label: 'Lieux actifs', value: data?.active_venues?.toString() },
+    { label: 'Offres actives', value: data?.active_offers?.toString() },
+    {
+      label: 'En modération',
+      value: data ? String((data.venues_pending ?? 0) + (data.offers_pending ?? 0)) : undefined,
+    },
+    { label: 'Réservations', value: data?.bookings?.toString() },
+    { label: 'Essais complétés', value: data?.completed_trials?.toString() },
+    { label: 'Conversions', value: data?.conversions?.toString() },
+  ];
+
+  return (
+    <section aria-label="Métriques" className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
+      {tiles.map((tile) => (
+        <div key={tile.label} className="rounded-[--radius-card] bg-surface p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink-400">{tile.label}</p>
+          {isLoading ? (
+            <div className="mt-2 h-8 w-16 animate-pulse rounded bg-surface-muted" aria-hidden />
+          ) : (
+            <p className="mt-1 text-3xl font-bold tabular-nums">{tile.value ?? '—'}</p>
+          )}
+        </div>
+      ))}
+    </section>
   );
 }
