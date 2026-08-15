@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
@@ -13,6 +13,7 @@ import { OfferCard } from '@/components/OfferCard';
 import { SectionSkeleton } from '@/components/Skeleton';
 import { EmptyState, ErrorState } from '@/components/States';
 import { NotificationBell } from '@/components/NotificationBell';
+import { categoryEmoji } from '@/lib/category-icons';
 
 /**
  * The discovery home.
@@ -107,6 +108,37 @@ export default function ExploreScreen() {
         Rechercher une activité, un lieu…
       </Text>
 
+      {/* La barre des disciplines, à la Airbnb : un geste, des résultats. On
+          choisit en tapant sur ce qu'on voit — le clavier est un dernier
+          recours, pas la porte d'entrée. */}
+      {(data?.categories?.length ?? 0) > 0 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.categoryBar}
+        >
+          {data!.categories.map((category) => (
+            <Pressable
+              key={category.id}
+              onPress={() => router.push(`/search?categoryId=${category.id}` as never)}
+              accessibilityRole="button"
+              accessibilityLabel={`Explorer ${category.name}`}
+              style={styles.categoryItem}
+            >
+              <View style={[styles.categoryBubble, { backgroundColor: theme.surfaceMuted }]}>
+                <Text style={styles.categoryEmoji}>{categoryEmoji(category.icon)}</Text>
+              </View>
+              <Text
+                style={[styles.categoryLabel, { color: theme.textSecondary }]}
+                numberOfLines={1}
+              >
+                {category.name}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      )}
+
       {sections.length === 0 ? (
         <EmptyState
           emoji="🔍"
@@ -175,6 +207,21 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: spacing.xs,
   },
+  categoryBar: {
+    gap: spacing.base,
+    paddingHorizontal: spacing.base,
+    paddingBottom: spacing.base,
+  },
+  categoryItem: { alignItems: 'center', gap: spacing.xs, width: 72 },
+  categoryBubble: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  categoryEmoji: { fontSize: 26 },
+  categoryLabel: { fontSize: typography.caption.fontSize, fontWeight: '600' },
   searchBar: {
     marginHorizontal: spacing.base,
     marginBottom: spacing.xl,
