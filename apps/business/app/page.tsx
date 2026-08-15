@@ -20,6 +20,9 @@ export default function DashboardPage() {
   const businessId = useBusinessId();
   const [days, setDays] = useState(30);
 
+  // Distingue « connecté sans établissement » de « pas connecté du tout ».
+  const viewer = useQuery({ queryKey: queryKeys.viewer, queryFn: () => api.auth.me(), retry: false });
+
   const range = useMemo(() => {
     const to = new Date();
     const from = new Date(to.getTime() - days * 86_400_000);
@@ -33,17 +36,26 @@ export default function DashboardPage() {
   });
 
   if (!businessId) {
+    // Deux situations distinctes : pas connecté, ou connecté sans établissement.
+    // Confondre les deux enverrait un compte fraîchement créé vers la page de
+    // connexion au lieu de l'inscription — un cul-de-sac au pire moment.
+    const isSignedIn = viewer.isSuccess;
+
     return (
       <main className="mx-auto max-w-2xl p-8">
-        <h1 className="text-2xl font-bold">Connecte-toi</h1>
+        <h1 className="text-2xl font-bold">
+          {isSignedIn ? 'Bienvenue sur TRY Business' : 'Connecte-toi'}
+        </h1>
         <p className="mt-2 text-ink-500">
-          Accède à ton espace professionnel pour suivre tes essais et tes conversions.
+          {isSignedIn
+            ? 'Inscris ton établissement : cinq minutes, et tes premières offres partent en vérification.'
+            : 'Accède à ton espace professionnel pour suivre tes essais et tes conversions.'}
         </p>
         <a
-          href="/sign-in"
+          href={isSignedIn ? '/onboarding' : '/sign-in'}
           className="mt-6 inline-block rounded-[--radius-card] bg-accent px-5 py-3 font-semibold text-white"
         >
-          Se connecter
+          {isSignedIn ? 'Inscrire mon établissement' : 'Se connecter'}
         </a>
       </main>
     );

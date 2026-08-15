@@ -55,6 +55,7 @@ import { ReviewController } from './modules/reviews/review.controller.js';
 import { FavoriteService } from './modules/favorites/favorite.service.js';
 import { FavoriteController } from './modules/favorites/favorite.controller.js';
 import { LifecycleJobsService } from './modules/jobs/lifecycle-jobs.service.js';
+import { ReferenceController } from './modules/reference/reference.controller.js';
 import { HealthController } from './modules/health/health.controller.js';
 import { BookingLifecycleListener } from './modules/events/booking-lifecycle.listener.js';
 
@@ -71,6 +72,7 @@ import { BookingLifecycleListener } from './modules/events/booking-lifecycle.lis
   imports: [ConfigModule, LoggerModule, DatabaseModule, ScheduleModule.forRoot()],
   controllers: [
     HealthController,
+    ReferenceController,
     AuthController,
     DiscoveryController,
     OfferController,
