@@ -8,6 +8,7 @@ import {
   type EmailMessage,
   type EmailTransport,
 } from '../src/modules/notifications/notification.service.js';
+import { NotificationController } from '../src/modules/notifications/notification.controller.js';
 import { connect, createTestUser, describeIfDatabase, seedBookableSlot } from './integration-setup.js';
 
 /**
@@ -147,7 +148,7 @@ describeIfDatabase('rappels de séance', () => {
 
   });
 
-  it('ne dit pas « demain » pour une séance qui commence dans 30 minutes', async () => {
+  it('parle en heures, pas en jours, pour une séance dans 30 minutes', async () => {
     const booking = await bookConfirmed(30);
     const transport = new RecordingTransport();
     const service = buildService(ctx.db, transport, silentLogger as never, new Date());
@@ -157,7 +158,7 @@ describeIfDatabase('rappels de séance', () => {
     const mine = transport.to(booking.email);
     expect(mine).toHaveLength(1);
     expect(mine[0]!.subject).toContain('Dans 2 h');
-    expect(mine[0]!.subject).not.toContain('Demain');
+    expect(mine[0]!.subject).not.toMatch(/Demain|Aujourd'hui/);
 
   });
 
@@ -169,17 +170,67 @@ describeIfDatabase('rappels de séance', () => {
     // Premier passage : la séance est dans 20 h, seul le rappel de la veille est dû.
     await buildService(ctx.db, transport, silentLogger as never, now).sendDueReminders();
     expect(transport.to(booking.email).map((m) => m.subject)).toEqual([
-      expect.stringContaining('Demain'),
+      expect.stringMatching(/^(Aujourd'hui|Demain) : /),
     ]);
 
     // 19 heures plus tard, la même réservation entre dans la fenêtre courte.
     const later = new Date(now.getTime() + 19 * 3_600_000);
     await buildService(ctx.db, transport, silentLogger as never, later).sendDueReminders();
     expect(transport.to(booking.email).map((m) => m.subject)).toEqual([
-      expect.stringContaining('Demain'),
+      expect.stringMatching(/^(Aujourd'hui|Demain) : /),
       expect.stringContaining('Dans 2 h'),
     ]);
 
+  });
+
+  /**
+   * Le rappel doit arriver jusqu'à l'écran, pas seulement jusqu'à la table.
+   *
+   * Ce test existe parce que la liste renvoyait une erreur 400 en production
+   * locale alors que le job, lui, fonctionnait : Drizzle rend des objets `Date`
+   * et le contrat promet des chaînes ISO. Le job avait des tests, la lecture
+   * n'en avait pas — et c'est la lecture que l'utilisateur voit.
+   */
+  it('rend le rappel lisible par l\x27app, dates au format ISO', async () => {
+    const booking = await bookConfirmed(3 * 60);
+    const transport = new RecordingTransport();
+    await buildService(ctx.db, transport, silentLogger as never, new Date()).sendDueReminders();
+
+    const controller = new NotificationController(ctx.db, { now: () => new Date() } as never);
+    const page = await controller.list({ id: booking.userId } as never);
+
+    expect(page.unreadCount).toBe(1);
+    expect(page.items[0]!.title).toMatch(/^(Aujourd'hui|Demain) : /);
+    // Une `Date` sérialisée par Nest passerait ici ; le schéma, lui, refuse.
+    expect(typeof page.items[0]!.createdAt).toBe('string');
+    expect(page.items[0]!.readAt).toBeNull();
+
+    await controller.markRead({ id: booking.userId } as never, page.items[0]!.id);
+    expect((await controller.list({ id: booking.userId } as never)).unreadCount).toBe(0);
+  });
+
+  /**
+   * Un identifiant n'est pas une autorisation : connaître celui d'une
+   * notification ne doit pas suffire à la marquer lue chez quelqu'un d'autre.
+   */
+  it('refuse de marquer lue la notification d\x27un autre compte', async () => {
+    const booking = await bookConfirmed(3 * 60);
+    const intruder = await createTestUser(ctx.db);
+    pending.push(async () => {
+      await ctx.db.execute(sql`DELETE FROM users WHERE id = ${intruder.id}`);
+    });
+
+    const transport = new RecordingTransport();
+    await buildService(ctx.db, transport, silentLogger as never, new Date()).sendDueReminders();
+
+    const controller = new NotificationController(ctx.db, { now: () => new Date() } as never);
+    const mine = await controller.list({ id: booking.userId } as never);
+
+    const result = await controller.markRead({ id: intruder.id } as never, mine.items[0]!.id);
+
+    expect(result.ok).toBe(false);
+    // Et elle est toujours non lue chez son propriétaire.
+    expect((await controller.list({ id: booking.userId } as never)).unreadCount).toBe(1);
   });
 
   it('ne rappelle pas une séance annulée', async () => {

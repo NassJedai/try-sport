@@ -6,6 +6,19 @@ import { CONFIG } from '../../common/config.module.js';
 import { LOGGER } from '../../common/logger.module.js';
 
 /**
+ * Le titre d'un rappel, qui doit être vrai dans les trois cas de figure.
+ *
+ * Il vit ici, et non dans le service qui l'appelle, parce que `reminder.service`
+ * importe déjà ce fichier : l'inverse fermerait un cycle entre les deux modules.
+ * Exporté pour être testé seul — c'est une règle de langage, elle se vérifie
+ * sans base de données.
+ */
+export function buildTitle(lead: 'day' | 'hours', isToday: boolean, offerTitle: string): string {
+  if (lead === 'hours') return `Dans 2 h : ${offerTitle}`;
+  return isToday ? `Aujourd'hui : ${offerTitle}` : `Demain : ${offerTitle}`;
+}
+
+/**
  * Notification transport boundary.
  *
  * Every send is fire-and-forget from the caller's perspective: a booking is
@@ -106,12 +119,14 @@ export class NotificationService {
     venueName: string;
     whenLabel: string;
     lead: 'day' | 'hours';
+    /** Vrai si la séance tombe le jour même dans le fuseau du LIEU. */
+    isToday: boolean;
   }): Promise<void> {
     const isDayBefore = input.lead === 'day';
 
     await this.safeSend({
       to: input.email,
-      subject: isDayBefore ? `Demain : ${input.offerTitle}` : `Dans 2 h : ${input.offerTitle}`,
+      subject: buildTitle(input.lead, input.isToday, input.offerTitle),
       body: [
         `${input.offerTitle} chez ${input.venueName}, ${input.whenLabel}.`,
         isDayBefore

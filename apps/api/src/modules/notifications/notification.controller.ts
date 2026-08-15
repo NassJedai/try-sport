@@ -57,10 +57,20 @@ export class NotificationController {
       .from(schema.notifications)
       .where(and(eq(schema.notifications.userId, user.id), isNull(schema.notifications.readAt)));
 
-    // Le schéma est appliqué, pas seulement déclaré : c'est lui qui convertit les
-    // dates en ISO et qui garantit qu'une colonne ajoutée un jour à la table
-    // n'est pas renvoyée par inadvertance à un téléphone.
-    return notificationListSchema.parse({ items, unreadCount: counted?.count ?? 0 });
+    // Le schéma est appliqué, pas seulement déclaré : il garantit qu'une colonne
+    // ajoutée un jour à la table n'est pas renvoyée par inadvertance à un
+    // téléphone. Il ne convertit rien, en revanche — les dates sont mises au
+    // format ISO ici, parce que Drizzle rend des objets `Date` et que le contrat
+    // promet des chaînes. C'est ce parse qui l'a signalé plutôt que de laisser
+    // passer une sérialisation implicite qui aurait varié selon l'appelant.
+    return notificationListSchema.parse({
+      items: items.map((item) => ({
+        ...item,
+        readAt: item.readAt?.toISOString() ?? null,
+        createdAt: item.createdAt.toISOString(),
+      })),
+      unreadCount: counted?.count ?? 0,
+    });
   }
 
   /**

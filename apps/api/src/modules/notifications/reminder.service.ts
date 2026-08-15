@@ -8,14 +8,18 @@ import type { Logger } from '@try/logger';
 import { DATABASE } from '../../common/database.module.js';
 import { CLOCK } from '../../common/clock.js';
 import { LOGGER } from '../../common/logger.module.js';
-import { NotificationService } from './notification.service.js';
+import { buildTitle, NotificationService } from './notification.service.js';
 
 /**
  * Les deux rappels envoyés avant une séance.
  *
  * Les fenêtres ne se chevauchent pas et couvrent tout : une réservation prise
- * 30 minutes avant le début tombe uniquement dans la fenêtre courte, et ne reçoit
- * donc jamais un « c'est demain » qui serait faux.
+ * 30 minutes avant le début tombe uniquement dans la fenêtre courte.
+ *
+ * Attention au piège du libellé : la fenêtre longue commence deux heures avant
+ * la séance, pas à minuit, donc elle attrape aussi des séances du jour même.
+ * « Demain » y serait faux une fois sur deux — le titre se décide sur le
+ * calendrier du lieu, jamais sur le nom de la fenêtre.
  *
  * Le rappel de la veille sert à ce qu'on annule à temps — une place libérée peut
  * encore être reprise. Celui de deux heures sert à ce qu'on vienne. Les deux
@@ -29,6 +33,7 @@ const REMINDERS = [
 
 /** Plafond par tour : un pic de réservations ne doit pas monopoliser la boucle. */
 const BATCH_LIMIT = 500;
+
 
 @Injectable()
 export class ReminderService {
@@ -90,10 +95,14 @@ export class ReminderService {
         .limit(BATCH_LIMIT);
 
       for (const row of due) {
-        const whenLabel = `${formatDateInZone(row.startAt, row.timeZone)} à ${formatTimeInZone(
-          row.startAt,
-          row.timeZone,
-        )}`;
+        const dayLabel = formatDateInZone(row.startAt, row.timeZone);
+        const whenLabel = `${dayLabel} à ${formatTimeInZone(row.startAt, row.timeZone)}`;
+
+        // « Demain » est faux pour une séance à 20 h alors qu'il est 17 h : la
+        // fenêtre longue commence à deux heures du début, pas à minuit. Le jour
+        // se juge sur le calendrier du LIEU — c'est là que la personne doit se
+        // présenter, et un lieu peut être dans un autre fuseau que le serveur.
+        const isToday = dayLabel === formatDateInZone(now, row.timeZone);
 
         // L'ordre compte : on réserve d'abord le droit d'envoyer, on envoie
         // ensuite. Deux instances de l'API font tourner le même cron ; c'est la
@@ -105,10 +114,7 @@ export class ReminderService {
             userId: row.userId,
             reservationId: row.reservationId,
             type: reminder.type,
-            title:
-              reminder.lead === 'day'
-                ? `Demain : ${row.offerTitle}`
-                : `Dans 2 h : ${row.offerTitle}`,
+            title: buildTitle(reminder.lead, isToday, row.offerTitle),
             body: `${row.offerTitle} chez ${row.venueName}, ${whenLabel}.`,
             deepLink: `/booking/${row.reservationId}`,
           })
@@ -130,6 +136,7 @@ export class ReminderService {
           venueName: row.venueName,
           whenLabel,
           lead: reminder.lead,
+          isToday,
         });
 
         // `sent_at` distingue « affiché dans l'app » de « parti par e-mail ».
