@@ -12,6 +12,7 @@ import { usePreferences } from '@/store/preferences';
 import { OfferCard } from '@/components/OfferCard';
 import { SectionSkeleton } from '@/components/Skeleton';
 import { EmptyState, ErrorState } from '@/components/States';
+import { NotificationBell } from '@/components/NotificationBell';
 
 /**
  * The discovery home.
@@ -83,13 +84,16 @@ export default function ExploreScreen() {
       removeClippedSubviews
     >
       <View style={styles.header}>
-        <Text style={[styles.city, { color: theme.textSecondary }]}>{data?.cityName}</Text>
-        <Text
-          style={[styles.prompt, { color: theme.textPrimary }]}
-          accessibilityRole="header"
-        >
-          Que veux-tu essayer ?
-        </Text>
+        <View style={styles.headerText}>
+          <Text style={[styles.city, { color: theme.textSecondary }]}>{data?.cityName}</Text>
+          <Text
+            style={[styles.prompt, { color: theme.textPrimary }]}
+            accessibilityRole="header"
+          >
+            Que veux-tu essayer ?
+          </Text>
+        </View>
+        <NotificationBell />
       </View>
 
       <Text
@@ -148,7 +152,17 @@ function Section({ section }: { section: DiscoverySectionDto }) {
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  header: { paddingHorizontal: spacing.base, marginBottom: spacing.base },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.base,
+    marginBottom: spacing.base,
+  },
+  // La colonne de texte prend la place restante : sans `flex: 1`, une longue
+  // ville pousserait la cloche hors de l'écran.
+  headerText: { flex: 1 },
   city: {
     fontSize: typography.footnote.fontSize,
     fontWeight: '600',

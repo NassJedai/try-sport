@@ -92,16 +92,32 @@ export class NotificationService {
     });
   }
 
+  /**
+   * Rappel avant séance.
+   *
+   * Les deux échéances ne disent pas la même chose : la veille, on peut encore
+   * annuler et rendre la place à quelqu'un d'autre ; deux heures avant, il n'y a
+   * plus qu'à venir. Le sujet doit donc suivre — « Demain » envoyé deux heures
+   * avant le cours est faux, et un rappel faux est pire que pas de rappel.
+   */
   async sendReminder(input: {
     email: string;
     offerTitle: string;
     venueName: string;
     whenLabel: string;
+    lead: 'day' | 'hours';
   }): Promise<void> {
+    const isDayBefore = input.lead === 'day';
+
     await this.safeSend({
       to: input.email,
-      subject: `Demain : ${input.offerTitle}`,
-      body: `Rappel : ${input.offerTitle} chez ${input.venueName}, ${input.whenLabel}.`,
+      subject: isDayBefore ? `Demain : ${input.offerTitle}` : `Dans 2 h : ${input.offerTitle}`,
+      body: [
+        `${input.offerTitle} chez ${input.venueName}, ${input.whenLabel}.`,
+        isDayBefore
+          ? `Un empêchement ? Annule depuis l'app pour libérer ta place — quelqu'un d'autre la prendra.`
+          : `Pense à ton QR code, il est dans l'app.`,
+      ].join('\n\n'),
     });
   }
 

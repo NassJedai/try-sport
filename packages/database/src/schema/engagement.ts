@@ -175,6 +175,15 @@ export const notifications = pgTable(
     body: text('body').notNull(),
     /** Deep link target, e.g. "/booking/<id>". */
     deepLink: text('deep_link'),
+    /**
+     * Présent pour tout ce qui concerne une réservation, et c'est ce qui rend
+     * l'envoi idempotent : `(reservation_id, type)` est unique, donc un cron qui
+     * rejoue ne peut pas produire un deuxième rappel pour la même séance.
+     * Nul pour les messages qui ne visent pas une réservation.
+     */
+    reservationId: fkId('reservation_id').references(() => reservations.id, {
+      onDelete: 'cascade',
+    }),
     readAt: timestampColumn('read_at'),
     sentAt: timestampColumn('sent_at'),
     createdAt: createdAt(),
@@ -184,5 +193,9 @@ export const notifications = pgTable(
     index('notifications_unread_idx')
       .on(table.userId)
       .where(sql`read_at IS NULL`),
+    uniqueIndex('notifications_reservation_type_key')
+      .on(table.reservationId, table.type)
+      .where(sql`reservation_id IS NOT NULL`),
+    index('notifications_user_recent_idx').on(table.userId, table.createdAt.desc()),
   ],
 );

@@ -42,6 +42,43 @@ export function connect(): TestContext {
   return { db: handle.db, close: handle.close };
 }
 
+/**
+ * Insère un pays de test avec un code réellement libre.
+ *
+ * `countries.code` est un `varchar(2)` unique — un code ISO. Le tirer au hasard
+ * ne donne que 1296 possibilités, et une suite qui en crée plusieurs par
+ * exécution finit par tomber sur une collision : un échec intermittent, dans un
+ * test qui n'a rien à voir avec les pays, et qui disparaît quand on le relance.
+ * C'est précisément le genre de test qu'on finit par ignorer.
+ *
+ * Le réessai supprime la classe entière. Il reste borné : au-delà, c'est que la
+ * table est saturée de résidus, et le test doit le dire plutôt que boucler.
+ */
+async function insertUniqueCountry(
+  db: Database,
+  suffix: string,
+): Promise<{ id: string }> {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const code =
+      alphabet[Math.floor(Math.random() * 26)]! + alphabet[Math.floor(Math.random() * 26)]!;
+
+    const [row] = await db
+      .insert(schema.countries)
+      .values({ code, name: `Test ${suffix}` })
+      .onConflictDoNothing({ target: schema.countries.code })
+      .returning({ id: schema.countries.id });
+
+    if (row) return row;
+  }
+
+  throw new Error(
+    'no free country code after 12 attempts — the countries table is probably ' +
+      'full of leftovers from tests that failed before cleaning up',
+  );
+}
+
 /** Minimal graph: country -> city -> business -> venue -> category -> offer -> slot. */
 export async function seedBookableSlot(
   db: Database,
@@ -55,10 +92,7 @@ export async function seedBookableSlot(
 }> {
   const suffix = Math.random().toString(36).slice(2, 10);
 
-  const [country] = await db
-    .insert(schema.countries)
-    .values({ code: suffix.slice(0, 2).toUpperCase(), name: `Test ${suffix}` })
-    .returning();
+  const country = await insertUniqueCountry(db, suffix);
   const [city] = await db
     .insert(schema.cities)
     .values({
@@ -166,10 +200,13 @@ export function expectConstraint(name: string): (error: unknown) => boolean {
   };
 }
 
-export async function createTestUser(db: Database): Promise<{ id: string }> {
-  const [user] = await db
-    .insert(schema.users)
-    .values({ email: `test-${Math.random().toString(36).slice(2)}@try.local`, role: 'USER' })
-    .returning();
-  return { id: user!.id };
+/**
+ * L'e-mail est retourné, pas seulement l'id : les suites qui exercent un job
+ * balayant toute la table en ont besoin pour distinguer leurs propres effets du
+ * bruit du seed de développement, qui partage la même base.
+ */
+export async function createTestUser(db: Database): Promise<{ id: string; email: string }> {
+  const email = `test-${Math.random().toString(36).slice(2)}@try.local`;
+  const [user] = await db.insert(schema.users).values({ email, role: 'USER' }).returning();
+  return { id: user!.id, email };
 }

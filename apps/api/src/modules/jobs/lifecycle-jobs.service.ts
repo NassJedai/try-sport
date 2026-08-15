@@ -11,6 +11,7 @@ import { LOGGER } from '../../common/logger.module.js';
 import { DomainEvents } from '../events/domain-events.js';
 import { IdempotencyService } from '../../common/idempotency/idempotency.service.js';
 import { ScheduleService } from '../scheduling/schedule.service.js';
+import { ReminderService } from '../notifications/reminder.service.js';
 
 /**
  * Reservation lifecycle jobs.
@@ -38,6 +39,7 @@ export class LifecycleJobsService {
     private readonly events: DomainEvents,
     private readonly idempotency: IdempotencyService,
     private readonly schedules: ScheduleService,
+    private readonly reminders: ReminderService,
   ) {}
 
   /**
@@ -207,6 +209,23 @@ export class LifecycleJobsService {
   async expandSchedules(): Promise<void> {
     await this.withLock('jobs:expand-schedules', async () => {
       await this.schedules.expandDueSchedules();
+    });
+  }
+
+  /**
+   * Envoie les rappels avant séance.
+   *
+   * Toutes les 15 minutes : c'est la précision réelle promise à l'utilisateur
+   * (« deux heures avant » signifie entre 1 h 45 et 2 h), et un e-mail de rappel
+   * n'a aucun besoin d'être à la minute. Le service ne renvoie jamais deux fois
+   * le même rappel, donc rien n'interdirait de le lancer plus souvent — c'est le
+   * coût qui n'en vaut pas la peine.
+   */
+  @Cron('0 */15 * * * *', { name: 'send-session-reminders' })
+  async sendSessionReminders(): Promise<void> {
+    await this.withLock('jobs:reminders', async () => {
+      const sent = await this.reminders.sendDueReminders();
+      if (sent > 0) this.logger.info({ count: sent }, 'sent session reminders');
     });
   }
 

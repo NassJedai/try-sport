@@ -213,26 +213,32 @@ Stated plainly rather than marked done:
    mentaient sur les dates dans les deux sens (les `timestamptz` sortent en
    chaînes, les paramètres `Date` sont refusés à l'entrée) — crash du ranking et
    des métriques business au premier appel réel.
-3. **Mobile : compile et se sert, jamais affichée.** Metro compile les 2103
-   modules de l'app sans erreur et sert un bundle iOS de 11 Mo — malgré les
-   espaces du chemin, qui ne bloquent donc que les builds *natifs* (Gradle/Xcode),
-   pas le développement JS. Ce qui manque pour la VOIR : soit Expo Go sur un
-   iPhone (`pnpm mobile` puis scanner le QR — l'app trouve l'API sur le réseau
-   local automatiquement via hostUri), soit accepter la licence Xcode
-   (`sudo xcodebuild -license`) et installer un runtime simulateur — les deux
-   demandent les droits admin de la machine. Épinglé sur le **SDK Expo 56**, pas 57 : 57
-   était `latest` sur npm le jour de sa sortie, mais l'Expo Go de l'App Store ne
-   le supporte pas encore — l'app refusait de s'ouvrir sur un vrai téléphone
-   (« requires a newer version of Expo Go »). Règle générale tirée de cet
-   épisode et du précédent sur react-native : pour l'écosystème Expo/RN,
-   « dernière version npm » n'est pas « version supportée » — c'est
-   `expo install` qui fait foi.
+3. ~~Mobile : compile et se sert, jamais affichée~~ **Résolu — l'app tourne sur
+   un vrai iPhone**, et c'est ce passage sur l'appareil qui a payé. Trois causes
+   distinctes se cachaient derrière la même erreur affichée (« impossible de se
+   connecter »), ce qui a coûté plusieurs allers-retours :
+   - **Aucun `babel.config.js` n'existait.** Les worklets de Reanimated
+     n'étaient donc jamais transformés et l'app plantait au premier import
+     (« Exception in HostFunction »). Invisible au typecheck, invisible à la
+     compilation du bundle : seul un lancement sur un appareil le montre.
+   - **Version du SDK.** Épinglé sur 57 puis 56 (`latest` sur npm), alors que
+     l'Expo Go de l'App Store supporte **54**. Règle tirée de cet épisode et du
+     précédent sur react-native : dans l'écosystème Expo/RN, « dernière version
+     npm » n'est pas « version supportée » — c'est `expo install` qui fait foi.
+   - **Quatre serveurs Metro simultanés**, le téléphone tapant sur un ancien qui
+     servait un état d'avant réinstallation. Puis, une fois cela réglé, un
+     décalage de port entre l'entrée mémorisée dans Expo Go et le serveur.
 4. **Payments are wired but unexercised** against real Stripe test keys.
-5. **Two UI surfaces lag their APIs**: the business onboarding wizard and the
-   admin browsing views. The endpoints exist and are role-checked; the screens do
-   not.
+5. ~~Two UI surfaces lag their APIs~~ **Résolu** : l'assistant d'inscription des
+   salles et les vues admin (utilisateurs, réservations, paiements) sont
+   construits et vérifiés dans le navigateur avec un compte neuf.
 6. **Deferred by design:** referrals, TRY+, corporate, waitlist, dynamic pricing,
    Stripe Connect payouts, Meta CAPI. Flags exist; implementations do not.
+7. **Notifications : e-mail uniquement.** Les rappels avant séance partent par
+   e-mail et s'affichent dans l'app ; il n'y a pas de notification *push*. C'est
+   un choix de séquence, pas un oubli : le push demande des identifiants Apple et
+   Google que le projet n'a pas encore, et la table `notifications` est déjà la
+   file dans laquelle un envoi push viendrait puiser.
 
 ### Fixed after the first pass
 

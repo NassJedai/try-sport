@@ -18,6 +18,13 @@ permission check in a React component is a UI affordance, never a control.
   safe outcome.
 - `POST /v1/auth/otp/request` always reports success. A different response for
   unknown addresses would make it an account-enumeration oracle.
+- **Le transport e-mail est choisi d'après la configuration**, pas codé en dur :
+  dès que `RESEND_API_KEY` est présente, l'envoi réel remplace la console. La
+  validation de configuration exigeait déjà cette clé hors du développement
+  local, mais le conteneur fournissait la console en dur — la clé était donc
+  réclamée puis ignorée, et la production aurait écrit les codes de connexion
+  dans ses journaux avec un démarrage parfaitement vert. Verrouillé par deux
+  tests dans `app.module.test.ts`, un par branche.
 
 ## Authorisation
 

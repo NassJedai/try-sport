@@ -9,6 +9,7 @@ import type {
   DiscoveryHomeDto,
   LeadDto,
   MapOffersResponseDto,
+  NotificationDto,
   OfferCardPageDto,
   OfferDetailDto,
   SearchOffersQueryDto,
@@ -100,6 +101,18 @@ export function createEndpoints(client: ApiClient) {
 
       cancel: (bookingId: string, reason?: string) =>
         client.post<{ refunded: boolean }>(`/v1/bookings/${bookingId}/cancel`, { reason }),
+    },
+
+    notifications: {
+      list: (unreadOnly = false) =>
+        client.get<{ items: NotificationDto[]; unreadCount: number }>('/v1/notifications', {
+          query: { unreadOnly: unreadOnly ? 'true' : undefined },
+        }),
+
+      markRead: (notificationId: string) =>
+        client.post<{ ok: boolean }>(`/v1/notifications/${notificationId}/read`, {}),
+
+      markAllRead: () => client.post<{ updated: number }>('/v1/notifications/read-all', {}),
     },
 
     checkIns: {

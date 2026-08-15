@@ -30,6 +30,11 @@ export const queryKeys = {
 
   favorites: ['favorites'] as const,
 
+  notifications: {
+    all: ['notifications'] as const,
+    list: (unreadOnly: boolean) => ['notifications', 'list', unreadOnly] as const,
+  },
+
   business: {
     all: ['business'] as const,
     metrics: (businessId: string, range: { from: string; to: string }) =>

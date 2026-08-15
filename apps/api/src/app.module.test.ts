@@ -9,6 +9,12 @@ import { DiscoveryService } from './modules/discovery/discovery.service.js';
 import { AuthService } from './modules/auth/auth.service.js';
 import { PaymentService } from './modules/payments/payment.service.js';
 import { BookingQueryService } from './modules/bookings/booking-query.service.js';
+import { CONFIG } from './common/config.module.js';
+import {
+  ConsoleEmailTransport,
+  EMAIL_TRANSPORT,
+} from './modules/notifications/notification.service.js';
+import { ResendEmailTransport } from './modules/notifications/resend.transport.js';
 
 /**
  * Container smoke test.
@@ -57,6 +63,31 @@ describe('AppModule dependency graph', () => {
     for (const key of ['db', 'clock', 'crypto', 'payments', 'events'] as const) {
       expect((booking as unknown as Record<string, unknown>)[key]).toBeDefined();
     }
+  });
+
+  it('uses the console transport only while no email key is configured', () => {
+    // Local config a volontairement pas de clé : la console est correcte ici.
+    expect(moduleRef.get(EMAIL_TRANSPORT)).toBeInstanceOf(ConsoleEmailTransport);
+  });
+
+  /**
+   * La régression que ce test verrouille : la validation de configuration
+   * EXIGE `RESEND_API_KEY` en staging et en production, mais le conteneur
+   * fournissait la console en dur. La clé était donc réclamée puis ignorée, et
+   * les codes de connexion de vrais utilisateurs seraient partis dans les
+   * journaux — un démarrage parfaitement vert, un produit cassé.
+   */
+  it('switches to the real transport as soon as a key is configured', async () => {
+    const withKey = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(CONFIG)
+      .useValue({ RESEND_API_KEY: 're_test_key', EMAIL_FROM: 'TRY <hello@try.local>' })
+      .overrideProvider(DATABASE)
+      .useValue({})
+      .overrideProvider(DATABASE_HANDLE)
+      .useValue({ ping: () => Promise.resolve(true), close: () => Promise.resolve() })
+      .compile();
+
+    expect(withKey.get(EMAIL_TRANSPORT)).toBeInstanceOf(ResendEmailTransport);
   });
 
   it('falls back to a provider that refuses payments when Stripe is unconfigured', async () => {

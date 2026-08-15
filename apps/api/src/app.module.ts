@@ -2,9 +2,10 @@ import { Module, type MiddlewareConsumer, type NestModule } from '@nestjs/common
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
 import type { AppConfig } from '@try/config';
+import type { Logger } from '@try/logger';
 
 import { ConfigModule, CONFIG } from './common/config.module.js';
-import { LoggerModule } from './common/logger.module.js';
+import { LoggerModule, LOGGER } from './common/logger.module.js';
 import { DatabaseModule } from './common/database.module.js';
 import { CLOCK, SystemClockProvider } from './common/clock.js';
 import { CryptoService } from './common/crypto.service.js';
@@ -24,6 +25,9 @@ import {
   EMAIL_TRANSPORT,
   NotificationService,
 } from './modules/notifications/notification.service.js';
+import { ReminderService } from './modules/notifications/reminder.service.js';
+import { ResendEmailTransport } from './modules/notifications/resend.transport.js';
+import { NotificationController } from './modules/notifications/notification.controller.js';
 import { DiscoveryRepository } from './modules/discovery/discovery.repository.js';
 import { DiscoveryService } from './modules/discovery/discovery.service.js';
 import { DiscoveryController } from './modules/discovery/discovery.controller.js';
@@ -86,6 +90,7 @@ import { BookingLifecycleListener } from './modules/events/booking-lifecycle.lis
     AdminBrowseController,
     ReviewController,
     FavoriteController,
+    NotificationController,
     WebhookController,
   ],
   providers: [
@@ -99,7 +104,23 @@ import { BookingLifecycleListener } from './modules/events/booking-lifecycle.lis
     TokenService,
     AuthService,
     NotificationService,
-    { provide: EMAIL_TRANSPORT, useClass: ConsoleEmailTransport },
+    ReminderService,
+    {
+      /**
+       * Le vrai transport dès qu'une clé est configurée, sinon la console.
+       *
+       * La validation de configuration exige déjà `RESEND_API_KEY` hors du
+       * développement local ; sans cette fabrique, elle l'exigeait sans jamais
+       * s'en servir — la production aurait démarré en écrivant les codes de
+       * connexion dans ses journaux, en toute conformité apparente.
+       */
+      provide: EMAIL_TRANSPORT,
+      inject: [CONFIG, LOGGER],
+      useFactory: (config: AppConfig, logger: Logger) =>
+        config.RESEND_API_KEY
+          ? new ResendEmailTransport(config, logger)
+          : new ConsoleEmailTransport(logger),
+    },
 
     DiscoveryRepository,
     DiscoveryService,
