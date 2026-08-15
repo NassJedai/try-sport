@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
+import { Platform } from 'react-native';
 import * as Brightness from 'expo-brightness';
 import { queryKeys } from '@try/api-client';
 import { radius, spacing, typography } from '@try/design-tokens';
@@ -30,6 +31,10 @@ export default function BookingQrScreen() {
   useEffect(() => {
     // Raise brightness while the code is on screen, and restore it on exit.
     let previous: number | null = null;
+
+    // Pas de contrôle de luminosité dans un navigateur : le module n'existe pas
+    // sur le web et l'appel ferait planter l'écran d'aperçu.
+    if (Platform.OS === 'web') return;
 
     void (async () => {
       const { status } = await Brightness.requestPermissionsAsync();

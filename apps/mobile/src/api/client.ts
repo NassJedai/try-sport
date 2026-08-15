@@ -1,5 +1,5 @@
 import Constants from 'expo-constants';
-import * as SecureStore from 'expo-secure-store';
+import { deleteSecureItem, getSecureItem, setSecureItem } from './secure-storage';
 import { ApiClient, createEndpoints } from '@try/api-client';
 import type { TokenStore } from '@try/api-client';
 
@@ -18,27 +18,27 @@ class SecureTokenStore implements TokenStore {
   private accessTokenCache: string | null = null;
 
   async getAccessToken(): Promise<string | null> {
-    this.accessTokenCache ??= await SecureStore.getItemAsync(ACCESS_TOKEN_KEY);
+    this.accessTokenCache ??= await getSecureItem(ACCESS_TOKEN_KEY);
     return this.accessTokenCache;
   }
 
   getRefreshToken(): Promise<string | null> {
-    return SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+    return getSecureItem(REFRESH_TOKEN_KEY);
   }
 
   async setTokens(tokens: { accessToken: string; refreshToken: string }): Promise<void> {
     this.accessTokenCache = tokens.accessToken;
     await Promise.all([
-      SecureStore.setItemAsync(ACCESS_TOKEN_KEY, tokens.accessToken),
-      SecureStore.setItemAsync(REFRESH_TOKEN_KEY, tokens.refreshToken),
+      setSecureItem(ACCESS_TOKEN_KEY, tokens.accessToken),
+      setSecureItem(REFRESH_TOKEN_KEY, tokens.refreshToken),
     ]);
   }
 
   async clear(): Promise<void> {
     this.accessTokenCache = null;
     await Promise.all([
-      SecureStore.deleteItemAsync(ACCESS_TOKEN_KEY),
-      SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY),
+      deleteSecureItem(ACCESS_TOKEN_KEY),
+      deleteSecureItem(REFRESH_TOKEN_KEY),
     ]);
   }
 }
