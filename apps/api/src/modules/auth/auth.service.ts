@@ -59,8 +59,12 @@ export class AuthService {
 
     // Local-only affordance so a developer without a mail server can sign in.
     // Configuration refuses to boot with this enabled outside local.
+    //
+    // The field is `devLoginCode`, not `code`: `code` is on the logger's
+    // redaction list, and the first live run printed `[redacted]` — the
+    // anti-leak guard silently neutralised the one log line meant to leak.
     if (this.config.AUTH_DEV_ECHO_OTP && this.config.isLocal) {
-      this.logger.warn({ email: dto.email, code }, 'DEV ONLY: login code issued');
+      this.logger.warn({ email: dto.email, devLoginCode: code }, 'DEV ONLY: login code issued');
     }
 
     return { sent: true };

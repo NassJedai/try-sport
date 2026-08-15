@@ -64,6 +64,20 @@ describe('configuration', () => {
     ).toThrow(/AUTH_DEV_ECHO_OTP/);
   });
 
+  it('refuses production without a real email transport', () => {
+    // The console fallback would write login codes into the logs.
+    expect(() =>
+      loadConfig({
+        ...validLocal,
+        APP_ENV: 'production',
+        REDIS_URL: 'redis://localhost:6379',
+        STRIPE_SECRET_KEY: 'sk_live_x',
+        STRIPE_WEBHOOK_SECRET: 'whsec_x',
+        CORS_ALLOWED_ORIGINS: 'https://app.try.be',
+      }),
+    ).toThrow(/RESEND_API_KEY/);
+  });
+
   it('accepts a fully configured production environment', () => {
     const config = loadConfig({
       ...validLocal,
@@ -72,6 +86,7 @@ describe('configuration', () => {
       REDIS_URL: 'redis://localhost:6379',
       STRIPE_SECRET_KEY: 'sk_live_x',
       STRIPE_WEBHOOK_SECRET: 'whsec_x',
+      RESEND_API_KEY: 're_x',
       CORS_ALLOWED_ORIGINS: 'https://app.try.be',
       API_PUBLIC_URL: 'https://api.try.be',
     });

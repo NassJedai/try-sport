@@ -55,7 +55,13 @@ export class CheckInService {
         .innerJoin(schema.offers, eq(schema.offers.id, schema.reservations.offerId))
         .leftJoin(schema.profiles, eq(schema.profiles.userId, schema.reservations.userId))
         .where(eq(schema.reservations.id, reservationId))
-        .for('update')
+        /**
+         * Lock the reservation row only. A bare FOR UPDATE tries to lock every
+         * joined table, and Postgres refuses to lock the nullable side of an
+         * outer join — the first real check-in failed with exactly that error.
+         * The profile is read-only context here; nothing about it is mutated.
+         */
+        .for('update', { of: schema.reservations })
         .limit(1);
 
       if (!row) throw new ApiException('CHECKIN_CODE_INVALID');

@@ -96,6 +96,15 @@ const configSchema = baseSchema.superRefine((config, ctx) => {
       message: 'Stripe credentials are required to take payments in staging and production.',
     });
   }
+  if (!config.RESEND_API_KEY) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['RESEND_API_KEY'],
+      message:
+        'A real email transport is required outside local development: the console ' +
+        'fallback would write login codes into the logs instead of sending them.',
+    });
+  }
   if (config.AUTH_DEV_ECHO_OTP) {
     ctx.addIssue({
       code: 'custom',

@@ -28,6 +28,11 @@ export const EMAIL_TRANSPORT = Symbol('EMAIL_TRANSPORT');
 /**
  * Development transport. It logs instead of sending, and says so — it does not
  * pretend a message was delivered.
+ *
+ * Digit runs in the subject are masked before logging: the OTP subject line is
+ * "123456 — ton code de connexion", and logging it verbatim put a login
+ * credential in the logs through a side door the redaction rules never saw.
+ * (The deliberate dev affordance for reading the code is AUTH_DEV_ECHO_OTP.)
  */
 @Injectable()
 export class ConsoleEmailTransport implements EmailTransport {
@@ -35,7 +40,7 @@ export class ConsoleEmailTransport implements EmailTransport {
 
   send(message: EmailMessage): Promise<void> {
     this.logger.info(
-      { to: message.to, subject: message.subject },
+      { to: message.to, subject: message.subject.replace(/\d{4,}/g, '••••') },
       'email not sent (no transport configured); logged only',
     );
     return Promise.resolve();

@@ -262,7 +262,9 @@ export class ScheduleService {
         .from(schema.slots)
         .innerJoin(schema.offers, eq(schema.offers.id, schema.slots.offerId))
         .where(eq(schema.slots.id, input.slotId))
-        .for('update')
+        // Only the slot is mutated; locking the joined offer row as well would
+        // serialise unrelated bookings on that offer for no benefit.
+        .for('update', { of: schema.slots })
         .limit(1);
 
       if (!slot) throw ApiException.notFound('slot', input.slotId);
