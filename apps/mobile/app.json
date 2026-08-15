@@ -18,7 +18,7 @@
         "usesNonExemptEncryption": false
       },
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "TRY utilise ta position pour te montrer les expériences sportives disponibles autour de toi.",
+        "NSLocationWhenInUseUsageDescription": "TRY utilise ta position pour te montrer les exp\u00e9riences sportives disponibles autour de toi.",
         "UIBackgroundModes": []
       },
       "associatedDomains": [
@@ -59,10 +59,9 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "TRY utilise ta position pour te montrer les expériences sportives disponibles autour de toi."
+          "locationWhenInUsePermission": "TRY utilise ta position pour te montrer les exp\u00e9riences sportives disponibles autour de toi."
         }
-      ],
-      "expo-status-bar"
+      ]
     ],
     "experiments": {
       "typedRoutes": true
