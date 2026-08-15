@@ -33,3 +33,8 @@ pnpm-debug.log*
 
 # Fichiers uploadés en local (photos) — jamais versionnés
 .media/
+
+# Mémoire de travail des sous-agents Claude — notes propres à chaque poste,
+# régénérables, sans valeur pour l'équipe. Les définitions d'agents, elles,
+# sont versionnées (.claude/agents/).
+.claude/agent-memory/
