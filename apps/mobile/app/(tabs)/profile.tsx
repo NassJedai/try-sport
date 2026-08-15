@@ -31,7 +31,7 @@ export default function ProfileScreen() {
     // Clearing the cache prevents the next signed-in user seeing the previous
     // account's bookings for a frame.
     queryClient.clear();
-    router.replace('/(onboarding)');
+    router.replace('/(onboarding)/welcome' as never);
   };
 
   if (isLoading) {

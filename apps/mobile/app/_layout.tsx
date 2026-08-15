@@ -42,7 +42,8 @@ export default function RootLayout() {
             {/* Ces groupes n'ont pas de _layout propre : chaque écran est une
                 route de premier niveau et doit être nommé tel quel — nommer le
                 groupe déclenche « No route named … » à chaque démarrage. */}
-            <Stack.Screen name="(onboarding)/index" options={{ animation: 'fade' }} />
+            <Stack.Screen name="index" />
+            <Stack.Screen name="(onboarding)/welcome" options={{ animation: 'fade' }} />
             <Stack.Screen name="(onboarding)/interests" options={{ animation: 'fade' }} />
             <Stack.Screen name="(onboarding)/location" options={{ animation: 'fade' }} />
             <Stack.Screen name="(auth)/sign-in" options={{ presentation: 'modal' }} />
