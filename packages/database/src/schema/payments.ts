@@ -39,6 +39,10 @@ export const payments = pgTable(
     /** What the venue is owed. Always amount - platformFee. */
     merchantAmount: integer('merchant_amount').notNull().default(0),
     refundedAmount: integer('refunded_amount').notNull().default(0),
+    /** Part de la commission deja rendue. Cumul, recalcule — jamais incremente. */
+    refundedPlatformFeeAmount: integer('refunded_platform_fee_amount').notNull().default(0),
+    /** Part de la salle deja rendue. Residu de la precedente. */
+    refundedMerchantAmount: integer('refunded_merchant_amount').notNull().default(0),
     currency: currencyEnum('currency').notNull().default('EUR'),
 
     failureCode: varchar('failure_code', { length: 60 }),
@@ -67,6 +71,21 @@ export const payments = pgTable(
       'payments_split_reconciles',
       sql`${table.platformFeeAmount} + ${table.merchantAmount} = ${table.amount}`,
     ),
+    /**
+     * Discipline de revue : aucun UPDATE payments ne doit toucher
+     * platform_fee_amount / merchant_amount hors de createIntentForReservation.
+     * C'est ce qui rend cette contrainte inatteignable en pratique — un
+     * remboursement ajuste refunded_platform_fee_amount / refunded_merchant_amount,
+     * jamais la ventilation d'encaissement elle-meme.
+     */
+    check(
+      'payments_refund_split_reconciles',
+      sql`${table.refundedPlatformFeeAmount} + ${table.refundedMerchantAmount} = ${table.refundedAmount}`,
+    ),
+    check(
+      'payments_refund_split_within_capture',
+      sql`${table.refundedPlatformFeeAmount} >= 0 AND ${table.refundedPlatformFeeAmount} <= ${table.platformFeeAmount} AND ${table.refundedMerchantAmount} >= 0 AND ${table.refundedMerchantAmount} <= ${table.merchantAmount}`,
+    ),
   ],
 );
 
@@ -80,24 +99,51 @@ export const refunds = pgTable(
     reservationId: fkId('reservation_id')
       .references(() => reservations.id, { onDelete: 'restrict' })
       .notNull(),
-    providerRefundId: varchar('provider_refund_id', { length: 64 }),
+    provider: varchar('provider', { length: 20 }).notNull().default('STRIPE'),
+    providerRefundId: varchar('provider_refund_id', { length: 64 }).notNull(),
     amount: integer('amount').notNull(),
     currency: currencyEnum('currency').notNull().default('EUR'),
     reason: varchar('reason', { length: 60 }),
     initiatedByUserId: fkId('initiated_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
+    /** PENDING | SUCCEEDED | FAILED | CANCELED — varchar + CHECK, pas un pgEnum : voir REFUND_LEDGER_STATUSES. */
+    status: varchar('status', { length: 20 }).notNull().default('SUCCEEDED'),
+    /** Part de la commission renversee par CETTE ligne. Zero si status <> SUCCEEDED. */
+    platformFeeAmount: integer('platform_fee_amount').notNull().default(0),
+    /** Part de la salle renversee par CETTE ligne. Zero si status <> SUCCEEDED. */
+    merchantAmount: integer('merchant_amount').notNull().default(0),
+    failureReason: varchar('failure_reason', { length: 120 }),
     succeededAt: timestampColumn('succeeded_at'),
     createdAt: createdAt(),
+    updatedAt: updatedAt(),
   },
   (table) => [
     index('refunds_payment_idx').on(table.paymentId),
-    uniqueIndex('refunds_provider_key')
-      .on(table.providerRefundId)
-      .where(sql`provider_refund_id IS NOT NULL`),
+    /**
+     * Unicite TOTALE et composite : le verrou d'idempotence du registre. Un
+     * `provider_refund_id` identifie un mouvement chez UN fournisseur ; deux
+     * fournisseurs ne doivent jamais entrer en collision sur un id homonyme.
+     */
+    uniqueIndex('refunds_provider_key').on(table.provider, table.providerRefundId),
+    index('refunds_payment_status_idx').on(table.paymentId, table.status),
     check('refunds_amount_positive', sql`${table.amount} > 0`),
+    check('refunds_status_known', sql`${table.status} IN ('PENDING', 'SUCCEEDED', 'FAILED', 'CANCELED')`),
+    check(
+      'refunds_split_non_negative',
+      sql`${table.platformFeeAmount} >= 0 AND ${table.merchantAmount} >= 0`,
+    ),
+    /** Une ligne non SUCCEEDED n'a jamais renverse d'argent : sa ventilation reste a zero. */
+    check(
+      'refunds_split_reconciles',
+      sql`(${table.status} = 'SUCCEEDED' AND ${table.platformFeeAmount} + ${table.merchantAmount} = ${table.amount})
+        OR (${table.status} <> 'SUCCEEDED' AND ${table.platformFeeAmount} = 0 AND ${table.merchantAmount} = 0)`,
+    ),
   ],
 );
+
+export const REFUND_LEDGER_STATUSES = ['PENDING', 'SUCCEEDED', 'FAILED', 'CANCELED'] as const;
+export type RefundLedgerStatus = (typeof REFUND_LEDGER_STATUSES)[number];
 
 /**
  * Every webhook Stripe sends is recorded before it is acted on.

@@ -144,3 +144,64 @@ export function formatMoney(value: Money, options: FormatMoneyOptions = {}): str
     maximumFractionDigits: fractionDigits,
   }).format(value.amount / divisor);
 }
+
+/**
+ * Part de commission renversee pour un cumul rembourse donne.
+ *
+ * Arrondi demi-superieur de platformFee * R / amount, en arithmetique entiere
+ * stricte (BigInt) : half-up(v) = floor((2*Fee*R + A) / (2*A)).
+ *
+ * Ancre sur la commission REELLEMENT prelevee, jamais sur le taux de la salle :
+ * businesses.commission_basis_points est renegociable, et un remboursement six
+ * mois plus tard ne doit pas rendre une commission calculee a un taux qui
+ * n'existait pas a l'encaissement.
+ *
+ * Trois proprietes portantes :
+ *  - refundedFeeAt(R = amount) === platformFee EXACTEMENT, quel que soit le
+ *    nombre de partiels qui y ont mene : (2*Fee*A + A)/(2A) = Fee + 1/2.
+ *  - croissante et 1-lipschitzienne (car platformFee <= amount), donc la part
+ *    d'une ligne est toujours dans [0, montant de la ligne].
+ *  - telescopage : la somme des parts de lignes vaut F(R_final) - F(0).
+ */
+export function refundedFeeAt(input: {
+  amount: number;
+  platformFee: number;
+  refundedCumulative: number;
+}): number {
+  const { amount, platformFee, refundedCumulative: r } = input;
+  for (const v of [amount, platformFee, r]) {
+    if (!Number.isSafeInteger(v) || v < 0) {
+      throw new MoneyError(`refundedFeeAt: entier positif attendu, recu ${v}`);
+    }
+  }
+  if (platformFee > amount) {
+    throw new MoneyError(`refundedFeeAt: commission ${platformFee} > brut ${amount}`);
+  }
+  if (r > amount) {
+    throw new MoneyError(`refundedFeeAt: cumul rembourse ${r} > brut ${amount}`);
+  }
+  if (amount === 0) return 0;
+  const a = BigInt(amount);
+  return Number((2n * BigInt(platformFee) * BigInt(r) + a) / (2n * a));
+}
+
+/** Ventilation d'UNE ligne de remboursement, prise en difference sur le cumul. */
+export function allocateRefundLine(input: {
+  amount: number;
+  platformFee: number;
+  refundedBefore: number;
+  lineAmount: number;
+}): { platformFeeAmount: number; merchantAmount: number } {
+  const before = refundedFeeAt({
+    amount: input.amount,
+    platformFee: input.platformFee,
+    refundedCumulative: input.refundedBefore,
+  });
+  const after = refundedFeeAt({
+    amount: input.amount,
+    platformFee: input.platformFee,
+    refundedCumulative: input.refundedBefore + input.lineAmount,
+  });
+  const fee = after - before;
+  return { platformFeeAmount: fee, merchantAmount: input.lineAmount - fee };
+}

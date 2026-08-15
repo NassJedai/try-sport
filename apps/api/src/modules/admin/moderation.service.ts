@@ -302,8 +302,15 @@ export class ModerationService {
         (SELECT COUNT(*) FROM reservations)::int AS bookings,
         (SELECT COUNT(*) FROM reservations WHERE status = 'COMPLETED')::int AS completed_trials,
         (SELECT COUNT(*) FROM reservations WHERE checked_in_at IS NOT NULL)::int AS check_ins,
-        (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE status = 'SUCCEEDED')::int AS gmv_minor,
-        (SELECT COALESCE(SUM(platform_fee_amount), 0) FROM payments WHERE status = 'SUCCEEDED')::int AS platform_revenue_minor,
+        -- Net du rembourse : un remboursement partiel doit faire baisser le GMV et
+        -- la commission affichee, pas seulement disparaitre d'un des deux chiffres.
+        -- PARTIALLY_REFUNDED et REFUNDED restent inclus (le brut a bien ete
+        -- encaisse), refunded_amount/refunded_platform_fee_amount portent la part
+        -- rendue.
+        (SELECT COALESCE(SUM(amount - refunded_amount), 0) FROM payments
+          WHERE status IN ('SUCCEEDED', 'PARTIALLY_REFUNDED', 'REFUNDED'))::int AS gmv_minor,
+        (SELECT COALESCE(SUM(platform_fee_amount - refunded_platform_fee_amount), 0) FROM payments
+          WHERE status IN ('SUCCEEDED', 'PARTIALLY_REFUNDED', 'REFUNDED'))::int AS platform_revenue_minor,
         (SELECT COUNT(*) FROM leads WHERE status = 'CONVERTED')::int AS conversions
     `)) as unknown as Record<string, number>[];
 

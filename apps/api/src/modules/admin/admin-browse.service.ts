@@ -149,6 +149,8 @@ export class AdminBrowseService {
       businessName: string;
       amount: { amount: number; currency: string };
       platformFee: { amount: number; currency: string };
+      /** Commission nette du rembourse : platformFee - refundedPlatformFee. */
+      netPlatformFee: { amount: number; currency: string };
       refunded: { amount: number; currency: string };
       providerPaymentIntentId: string | null;
       createdAt: string;
@@ -165,6 +167,7 @@ export class AdminBrowseService {
         amount: schema.payments.amount,
         platformFeeAmount: schema.payments.platformFeeAmount,
         refundedAmount: schema.payments.refundedAmount,
+        refundedPlatformFeeAmount: schema.payments.refundedPlatformFeeAmount,
         currency: schema.payments.currency,
         providerPaymentIntentId: schema.payments.providerPaymentIntentId,
         createdAt: schema.payments.createdAt,
@@ -185,6 +188,7 @@ export class AdminBrowseService {
           businessName: row.businessName,
           amount: money(row.amount, currency),
           platformFee: money(row.platformFeeAmount, currency),
+          netPlatformFee: money(row.platformFeeAmount - row.refundedPlatformFeeAmount, currency),
           refunded: money(row.refundedAmount, currency),
           providerPaymentIntentId: row.providerPaymentIntentId,
           createdAt: row.createdAt.toISOString(),

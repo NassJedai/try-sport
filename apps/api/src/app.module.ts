@@ -42,6 +42,8 @@ import { BookingController } from './modules/bookings/booking.controller.js';
 import { CheckInService } from './modules/checkins/checkin.service.js';
 import { CheckInController } from './modules/checkins/checkin.controller.js';
 import { PaymentService } from './modules/payments/payment.service.js';
+import { RefundLedgerService } from './modules/payments/refund-ledger.service.js';
+import { WebhookDispatcherService } from './modules/payments/webhook-dispatcher.service.js';
 import { WebhookController } from './modules/payments/webhook.controller.js';
 import { PAYMENT_PROVIDER } from './modules/payments/payment-provider.js';
 import {
@@ -145,6 +147,8 @@ import { BookingLifecycleListener } from './modules/events/booking-lifecycle.lis
     MediaService,
 
     PaymentService,
+    RefundLedgerService,
+    WebhookDispatcherService,
     {
       /**
        * Stripe is only constructed when it is actually configured. The fallback

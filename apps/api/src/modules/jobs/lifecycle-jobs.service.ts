@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { and, eq, inArray, lt, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { schema, tryAcquireLock } from '@try/database';
 import type { Database } from '@try/database';
 import type { Clock } from '@try/utils';
@@ -12,6 +12,9 @@ import { DomainEvents } from '../events/domain-events.js';
 import { IdempotencyService } from '../../common/idempotency/idempotency.service.js';
 import { ScheduleService } from '../scheduling/schedule.service.js';
 import { ReminderService } from '../notifications/reminder.service.js';
+import { PAYMENT_PROVIDER, type PaymentProvider } from '../payments/payment-provider.js';
+import { PaymentService } from '../payments/payment.service.js';
+import { WebhookDispatcherService } from '../payments/webhook-dispatcher.service.js';
 
 /**
  * Reservation lifecycle jobs.
@@ -40,6 +43,9 @@ export class LifecycleJobsService {
     private readonly idempotency: IdempotencyService,
     private readonly schedules: ScheduleService,
     private readonly reminders: ReminderService,
+    private readonly dispatcher: WebhookDispatcherService,
+    private readonly payments: PaymentService,
+    @Inject(PAYMENT_PROVIDER) private readonly provider: PaymentProvider,
   ) {}
 
   /**
@@ -232,6 +238,81 @@ export class LifecycleJobsService {
     await this.withLock('jobs:reminders', async () => {
       const sent = await this.reminders.sendDueReminders();
       if (sent > 0) this.logger.info({ count: sent }, 'sent session reminders');
+    });
+  }
+
+  /**
+   * Rejoue les webhooks dont le traitement a echoue.
+   *
+   * Le recepteur repond toujours 2xx pour ne pas faire boucler Stripe sur un
+   * evenement empoisonne. Le prix est qu'un echec de traitement n'est retente par
+   * personne : ce job est la contrepartie. Le rejeu est sur parce que l'ecriture
+   * du registre est cle par provider_refund_id et que la projection est
+   * recalculee — retraiter un evenement deja partiellement applique converge,
+   * il ne double-compte jamais.
+   */
+  @Cron(CronExpression.EVERY_5_MINUTES, { name: 'replay-failed-webhooks' })
+  async replayFailedWebhooks(): Promise<void> {
+    await this.withLock('jobs:replay-webhooks', async () => {
+      const rows = await this.db
+        .select()
+        .from(schema.webhookEvents)
+        .where(
+          and(
+            isNull(schema.webhookEvents.processedAt),
+            lt(schema.webhookEvents.attemptCount, 10),
+            gt(schema.webhookEvents.createdAt, new Date(this.clock.now().getTime() - 7 * 86_400_000)),
+          ),
+        )
+        .orderBy(schema.webhookEvents.createdAt)
+        .limit(100);
+
+      let replayed = 0;
+      for (const row of rows) {
+        try {
+          // La signature a deja ete verifiee a la reception : on reinterprete la
+          // charge utile stockee, on ne la re-authentifie pas.
+          await this.dispatcher.dispatch(this.provider.interpret(row.payload));
+          await this.payments.markWebhookProcessed(row.id);
+          replayed += 1;
+        } catch (error) {
+          await this.payments.markWebhookFailed(
+            row.id,
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+      }
+
+      if (replayed > 0) {
+        this.logger.info({ count: replayed, seen: rows.length }, 'replayed failed webhooks');
+      }
+    });
+  }
+
+  /**
+   * Controle de derive quotidien entre le registre `refunds` et sa projection
+   * sur `payments`. Les deux sont ecrits dans la meme transaction par
+   * `RefundLedgerService`, donc un ecart signale un bug, pas un etat transitoire
+   * legitime — chaque ligne remontee est un `logger.error`.
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_4AM, { name: 'check-refund-ledger-drift' })
+  async checkRefundLedgerDrift(): Promise<void> {
+    await this.withLock('jobs:refund-ledger-drift', async () => {
+      const rows = (await this.db.execute(sql`
+        SELECT p.id, p.refunded_amount, p.refunded_platform_fee_amount,
+               COALESCE(r.s, 0) AS ledger_amount, COALESCE(r.f, 0) AS ledger_fee
+        FROM payments p
+        LEFT JOIN (
+          SELECT payment_id, SUM(amount) AS s, SUM(platform_fee_amount) AS f
+          FROM refunds WHERE status = 'SUCCEEDED' GROUP BY payment_id
+        ) r ON r.payment_id = p.id
+        WHERE COALESCE(r.s, 0) <> p.refunded_amount
+           OR COALESCE(r.f, 0) <> p.refunded_platform_fee_amount
+      `)) as unknown as { id: string }[];
+
+      for (const row of rows) {
+        this.logger.error({ paymentId: row.id }, 'derive detectee entre le registre refunds et sa projection payments');
+      }
     });
   }
 

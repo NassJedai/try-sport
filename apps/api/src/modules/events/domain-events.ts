@@ -53,6 +53,15 @@ export interface DomainEventMap {
   LeadConverted: { leadId: string; businessId: string; revenueMinor: number };
   PaymentSucceeded: { reservationId: string; paymentId: string; amount: number };
   PaymentFailed: { reservationId: string; paymentId: string; failureCode: string | null };
+  PaymentRefunded: {
+    reservationId: string;
+    paymentId: string;
+    providerRefundId: string;
+    amountMinor: number;
+    cumulativeRefundedMinor: number;
+    platformFeeReversedMinor: number;
+    isFullRefund: boolean;
+  };
 }
 
 export type DomainEventName = keyof DomainEventMap;
