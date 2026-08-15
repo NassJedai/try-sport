@@ -164,6 +164,28 @@ export function createEndpoints(client: ApiClient) {
 
       cancelSlot: (slotId: string, reason: string) =>
         client.post<{ affectedReservations: number }>(`/v1/slots/${slotId}/cancel`, { reason }),
+
+      venueImages: (venueId: string) =>
+        client.get<{ items: { id: string; url: string; width: number; height: number }[] }>(
+          `/v1/venues/${venueId}/images`,
+        ),
+
+      uploadVenueImage: (venueId: string, file: Blob, contentType: string) =>
+        client.postBinary<{ id: string; url: string }>(`/v1/venues/${venueId}/images`, file, contentType),
+
+      deleteVenueImage: (venueId: string, imageId: string) =>
+        client.delete<void>(`/v1/venues/${venueId}/images/${imageId}`),
+
+      offerImages: (offerId: string) =>
+        client.get<{ items: { id: string; url: string; width: number; height: number }[] }>(
+          `/v1/offers/${offerId}/images`,
+        ),
+
+      uploadOfferImage: (offerId: string, file: Blob, contentType: string) =>
+        client.postBinary<{ id: string; url: string }>(`/v1/offers/${offerId}/images`, file, contentType),
+
+      deleteOfferImage: (offerId: string, imageId: string) =>
+        client.delete<void>(`/v1/offers/${offerId}/images/${imageId}`),
     },
   };
 }

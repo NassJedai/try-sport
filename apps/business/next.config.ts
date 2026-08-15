@@ -28,7 +28,12 @@ const config: NextConfig = {
                */
               `script-src 'self' 'unsafe-inline'${isDevelopment ? " 'unsafe-eval'" : ''}`,
               "style-src 'self' 'unsafe-inline'",
-              "img-src 'self' data: https:",
+              /**
+               * En dev, les photos sont servies par l'API locale en http —
+               * localhost ou l'IP du réseau selon l'appareil. En production,
+               * https: seul reste autorisé.
+               */
+              `img-src 'self' data: https:${isDevelopment ? ' http://localhost:3000 http://192.168.0.8:3000' : ''}`,
               "connect-src 'self' http://localhost:3000 https://api.try.be",
               "frame-ancestors 'none'",
             ].join('; '),

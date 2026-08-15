@@ -30,3 +30,6 @@ pnpm-debug.log*
 .vscode/*
 !.vscode/extensions.json
 .idea/
+
+# Fichiers uploadés en local (photos) — jamais versionnés
+.media/

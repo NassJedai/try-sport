@@ -185,6 +185,7 @@ export const businessOfferSchema = z.object({
   id: uuidSchema,
   title: z.string(),
   status: z.enum(OFFER_STATUSES),
+  venueId: uuidSchema,
   venueName: z.string(),
   priceAmount: z.int().nonnegative(),
   durationMinutes: z.int().positive(),

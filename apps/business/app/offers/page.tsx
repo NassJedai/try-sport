@@ -7,6 +7,7 @@ import type { BusinessSlotDto } from '@try/contracts';
 import { formatMoney } from '@try/utils';
 import { api } from '@/lib/api';
 import { useBusinessId, useBusinessRole } from '@/lib/use-business';
+import { PhotoManager } from '@/components/photo-manager';
 
 /**
  * Offres & planning — l'outil d'exploitation du gérant.
@@ -152,6 +153,32 @@ export default function OffersPage() {
           </ul>
         )}
       </section>
+
+      {canMutate && offers.length > 0 && (
+        <section aria-labelledby="photos-title" className="mt-10">
+          <h2 id="photos-title" className="text-xl font-bold">
+            Photos
+          </h2>
+          <p className="mt-1 text-sm text-ink-500">
+            C'est ce que les clients voient en premier dans l'app. JPEG, PNG ou WebP, 8 Mo max.
+          </p>
+          <div className="mt-4 space-y-6 rounded-[--radius-card] bg-surface p-5 shadow-sm">
+            {[...new Map(offers.map((offer) => [offer.venueId, offer.venueName])).entries()].map(
+              ([venueId, venueName]) => (
+                <PhotoManager key={venueId} kind="venue" entityId={venueId} title={venueName} />
+              ),
+            )}
+            {offers.map((offer) => (
+              <PhotoManager
+                key={offer.id}
+                kind="offer"
+                entityId={offer.id}
+                title={`Offre « ${offer.title} »`}
+              />
+            ))}
+          </div>
+        </section>
+      )}
 
       <section aria-labelledby="slots-title" className="mt-10">
         <h2 id="slots-title" className="text-xl font-bold">

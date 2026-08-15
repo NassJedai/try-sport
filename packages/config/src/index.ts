@@ -54,8 +54,14 @@ const baseSchema = z.object({
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
 
-  STORAGE_PUBLIC_BASE_URL: z.url().default('http://localhost:3000/static'),
+  STORAGE_PUBLIC_BASE_URL: z.url().default('http://localhost:3000/media'),
   STORAGE_BUCKET: z.string().default('try-media'),
+  /**
+   * Où les fichiers uploadés vivent en local. En production, un stockage objet
+   * remplace le disque derrière la même frontière (MediaService) et
+   * STORAGE_PUBLIC_BASE_URL pointe vers le CDN.
+   */
+  MEDIA_DIR: z.string().default('.media'),
 
   EMAIL_FROM: z.string().default('TRY <hello@try.local>'),
   RESEND_API_KEY: z.string().optional(),

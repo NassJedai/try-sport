@@ -58,6 +58,12 @@ export interface RequestOptions {
   timeoutMs?: number;
   /** Skips the Authorization header (login endpoints). */
   anonymous?: boolean;
+  /**
+   * Corps binaire brut (upload d'image). Exclusif de `body` : quand il est
+   * présent, rien n'est sérialisé en JSON et `contentType` fait foi.
+   */
+  rawBody?: Blob | ArrayBuffer;
+  contentType?: string;
 }
 
 export class ApiClient {
@@ -93,6 +99,11 @@ export class ApiClient {
     return this.request<T>(path, { ...options, method: 'POST', body });
   }
 
+  /** Upload binaire : le fichier EST le corps de la requête. */
+  postBinary<T>(path: string, file: Blob | ArrayBuffer, contentType: string): Promise<T> {
+    return this.request<T>(path, { method: 'POST', rawBody: file, contentType });
+  }
+
   patch<T>(path: string, body?: unknown, options: Omit<RequestOptions, 'method'> = {}): Promise<T> {
     return this.request<T>(path, { ...options, method: 'PATCH', body });
   }
@@ -106,7 +117,11 @@ export class ApiClient {
 
     const headers: Record<string, string> = {
       Accept: 'application/json',
-      ...(options.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      ...(options.rawBody !== undefined
+        ? { 'Content-Type': options.contentType ?? 'application/octet-stream' }
+        : options.body !== undefined
+          ? { 'Content-Type': 'application/json' }
+          : {}),
       ...(options.idempotencyKey ? { 'Idempotency-Key': options.idempotencyKey } : {}),
       ...(this.options.clientInfo
         ? { 'X-Client': `${this.options.clientInfo.name}/${this.options.clientInfo.version}` }
@@ -133,7 +148,12 @@ export class ApiClient {
       return await fetch(url, {
         method: options.method ?? 'GET',
         headers,
-        body: options.body === undefined ? undefined : JSON.stringify(options.body),
+        body:
+          options.rawBody !== undefined
+            ? options.rawBody
+            : options.body === undefined
+              ? undefined
+              : JSON.stringify(options.body),
         signal: controller.signal,
       });
     } catch (error) {

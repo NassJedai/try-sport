@@ -48,6 +48,20 @@ async function bootstrap(): Promise<void> {
 
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
 
+  /**
+   * Les uploads de photos arrivent en binaire brut, pas en multipart : un
+   * fichier par requête, zéro dépendance de parsing. La limite de 9 Mo dépasse
+   * légèrement la limite métier (8 Mo, vérifiée dans MediaService) pour que le
+   * refus soit une erreur de validation propre, pas une coupure de connexion.
+   */
+  adapter
+    .getInstance()
+    .addContentTypeParser(
+      ['image/jpeg', 'image/png', 'image/webp'],
+      { parseAs: 'buffer', bodyLimit: 9 * 1024 * 1024 },
+      (_request, body, done) => done(null, body),
+    );
+
   await app.register(helmet, {
     // The API serves JSON, not documents; CSP belongs on the web apps.
     contentSecurityPolicy: false,

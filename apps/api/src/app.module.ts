@@ -27,6 +27,8 @@ import {
 } from './modules/notifications/notification.service.js';
 import { ReminderService } from './modules/notifications/reminder.service.js';
 import { ResendEmailTransport } from './modules/notifications/resend.transport.js';
+import { MediaService } from './modules/media/media.service.js';
+import { MediaController, MediaFileController } from './modules/media/media.controller.js';
 import { NotificationController } from './modules/notifications/notification.controller.js';
 import { DiscoveryRepository } from './modules/discovery/discovery.repository.js';
 import { DiscoveryService } from './modules/discovery/discovery.service.js';
@@ -91,6 +93,8 @@ import { BookingLifecycleListener } from './modules/events/booking-lifecycle.lis
     ReviewController,
     FavoriteController,
     NotificationController,
+    MediaController,
+    MediaFileController,
     WebhookController,
   ],
   providers: [
@@ -138,6 +142,7 @@ import { BookingLifecycleListener } from './modules/events/booking-lifecycle.lis
     ReviewService,
     FavoriteService,
     LifecycleJobsService,
+    MediaService,
 
     PaymentService,
     {

@@ -132,6 +132,7 @@ export class BusinessService {
         id: schema.offers.id,
         title: schema.offers.title,
         status: schema.offers.status,
+        venueId: schema.offers.venueId,
         venueName: schema.venues.name,
         priceAmount: schema.offers.priceAmount,
         durationMinutes: schema.offers.durationMinutes,
