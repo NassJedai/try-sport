@@ -128,7 +128,11 @@ export class ModerationService {
 
     return this.db.transaction(async (tx) => {
       const [venue] = await tx
-        .select({ id: schema.venues.id, status: schema.venues.status })
+        .select({
+          id: schema.venues.id,
+          status: schema.venues.status,
+          businessId: schema.venues.businessId,
+        })
         .from(schema.venues)
         .where(eq(schema.venues.id, input.venueId))
         .for('update')
@@ -160,6 +164,34 @@ export class ModerationService {
           .set({ status: 'PAUSED', updatedAt: now })
           .where(
             and(eq(schema.offers.venueId, input.venueId), eq(schema.offers.status, 'ACTIVE')),
+          );
+      }
+
+      /**
+       * Approuver un lieu active l'établissement qui le porte.
+       *
+       * Sans cela, l'inscription en libre-service est un cul-de-sac : un
+       * établissement naît PENDING_APPROVAL, la découverte filtre là-dessus, et
+       * RIEN dans la console ne permettait de le faire passer à ACTIVE. Le lieu
+       * et l'offre pouvaient être approuvés, publiés, avec leurs créneaux — et
+       * rester introuvables pour toujours. Vu en s'inscrivant vraiment.
+       *
+       * Le geste est le bon : un admin qui valide l'adresse et le nom d'un lieu
+       * a déjà examiné tout ce qu'il y a à examiner de l'établissement. Un écran
+       * séparé n'ajouterait qu'une étape, pas une information.
+       *
+       * Restreint aux établissements ENCORE en attente : réactiver un lieu ne
+       * doit jamais relever une suspension décidée au niveau de l'entreprise.
+       */
+      if (target === 'ACTIVE') {
+        await tx
+          .update(schema.businesses)
+          .set({ status: 'ACTIVE', updatedAt: now })
+          .where(
+            and(
+              eq(schema.businesses.id, venue.businessId),
+              eq(schema.businesses.status, 'PENDING_APPROVAL'),
+            ),
           );
       }
 
