@@ -1,5 +1,6 @@
 import { ERROR_MESSAGES_FR } from '@try/contracts';
 import type { ApiErrorBody, ErrorCode } from '@try/contracts';
+import { base64UrlToUtf8 } from '@try/utils';
 
 /**
  * The one place any TRY frontend talks to the API.
@@ -7,6 +8,26 @@ import type { ApiErrorBody, ErrorCode } from '@try/contracts';
  * Nothing in a screen calls `fetch` directly: that is how untyped responses,
  * inconsistent error handling and forgotten auth headers spread through an app.
  */
+
+/**
+ * Lit l'échéance d'un JWT sans vérifier sa signature — inutile côté client, le
+ * serveur revérifie tout. Marge de 30 s : un jeton qui expire pendant le vol de
+ * la requête est déjà mort à l'arrivée. Illisible = réputé expiré, le refresh
+ * tranchera.
+ */
+function isTokenExpired(token: string): boolean {
+  try {
+    const payload = token.split('.')[1];
+    if (!payload) return true;
+    // Décodeur maison : Hermes n'a ni atob ni Buffer, et c'est précisément là
+    // que ce code doit fonctionner.
+    const claims = JSON.parse(base64UrlToUtf8(payload)) as { exp?: number };
+    if (typeof claims.exp !== 'number') return false;
+    return claims.exp * 1000 <= Date.now() + 30_000;
+  } catch {
+    return true;
+  }
+}
 
 export class ApiError extends Error {
   constructor(
@@ -129,7 +150,21 @@ export class ApiClient {
     };
 
     if (!options.anonymous && this.options.tokens) {
-      const token = await this.options.tokens.getAccessToken();
+      let token = await this.options.tokens.getAccessToken();
+
+      /**
+       * Rafraîchi AVANT l'envoi quand le jeton est déjà périmé — pas seulement
+       * après un 401. Les routes publiques tolèrent (à raison) un jeton mort et
+       * répondent en anonyme : sans ce contrôle, une app rouverte après 15 min
+       * montrait la vue anonyme — éligibilité d'essai fausse, favoris absents —
+       * jusqu'à ce qu'une réservation échoue en bout de course. Vu sur
+       * simulateur : bouton « Réserver » actif, refus serveur derrière.
+       */
+      if (token && isTokenExpired(token)) {
+        const refreshed = await this.refreshOnce();
+        token = refreshed ? await this.options.tokens.getAccessToken() : null;
+      }
+
       if (token) headers.Authorization = `Bearer ${token}`;
     }
 

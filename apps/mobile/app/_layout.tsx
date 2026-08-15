@@ -1,3 +1,6 @@
+// Polyfill AVANT tout autre import applicatif — voir le fichier lui-même.
+import '@/lib/crypto-polyfill';
+
 import { useEffect } from 'react';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -36,8 +39,13 @@ export default function RootLayout() {
             }}
           >
             <Stack.Screen name="(tabs)" />
-            <Stack.Screen name="(onboarding)" options={{ animation: 'fade' }} />
-            <Stack.Screen name="(auth)" options={{ presentation: 'modal' }} />
+            {/* Ces groupes n'ont pas de _layout propre : chaque écran est une
+                route de premier niveau et doit être nommé tel quel — nommer le
+                groupe déclenche « No route named … » à chaque démarrage. */}
+            <Stack.Screen name="(onboarding)/index" options={{ animation: 'fade' }} />
+            <Stack.Screen name="(onboarding)/interests" options={{ animation: 'fade' }} />
+            <Stack.Screen name="(onboarding)/location" options={{ animation: 'fade' }} />
+            <Stack.Screen name="(auth)/sign-in" options={{ presentation: 'modal' }} />
             <Stack.Screen
               name="offer/[id]"
               options={{ animation: 'slide_from_right' }}

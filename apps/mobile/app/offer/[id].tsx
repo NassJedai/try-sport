@@ -275,6 +275,24 @@ export default function OfferDetailScreen() {
           shadows.lg,
         ]}
       >
+        {ineligible && offer.viewerEligibility?.message && (
+          <Text style={[styles.ctaNote, { color: theme.textSecondary }]}>
+            {offer.viewerEligibility.message}
+          </Text>
+        )}
+        {booking.isError && !ineligible && (
+          // Le bandeau d'inéligibilité rend la même information au présent ;
+          // empiler l'erreur de la tentative par-dessus ne fait que troubler.
+          <Text
+            style={[styles.ctaNote, styles.ctaNoteError, { color: theme.danger }]}
+            accessibilityRole="alert"
+          >
+            {booking.error instanceof ApiError
+              ? booking.error.message
+              : 'Impossible de finaliser ta réservation. Aucun paiement n’a été débité.'}
+          </Text>
+        )}
+        <View style={styles.ctaRow}>
         <View style={styles.ctaPrice}>
           {offer.referencePrice && (
             <Text style={[styles.ctaReference, { color: theme.textTertiary }]}>
@@ -308,26 +326,8 @@ export default function OfferDetailScreen() {
             }
           />
         </View>
+        </View>
       </View>
-
-      {ineligible && offer.viewerEligibility?.message && (
-        <Text
-          style={[styles.eligibility, { color: theme.textSecondary, bottom: insets.bottom + 96 }]}
-        >
-          {offer.viewerEligibility.message}
-        </Text>
-      )}
-
-      {booking.isError && (
-        <Text
-          style={[styles.error, { color: theme.danger, bottom: insets.bottom + 96 }]}
-          accessibilityRole="alert"
-        >
-          {booking.error instanceof ApiError
-            ? booking.error.message
-            : 'Impossible de finaliser ta réservation. Aucun paiement n’a été débité.'}
-        </Text>
-      )}
     </View>
   );
 }
@@ -438,9 +438,6 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.base,
     paddingHorizontal: spacing.base,
     paddingTop: spacing.md,
     borderTopWidth: StyleSheet.hairlineWidth,
@@ -449,19 +446,13 @@ const styles = StyleSheet.create({
   ctaReference: { fontSize: typography.footnote.fontSize, textDecorationLine: 'line-through' },
   ctaAmount: { fontSize: typography.title2.fontSize, fontWeight: '700' },
   ctaButton: { flex: 1 },
-  eligibility: {
-    position: 'absolute',
-    left: spacing.base,
-    right: spacing.base,
+  ctaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.base },
+  // Dans le flux de la barre, jamais flottant : un message positionné en
+  // absolu finissait superposé au contenu de la page.
+  ctaNote: {
     fontSize: typography.footnote.fontSize,
     textAlign: 'center',
+    marginBottom: spacing.sm,
   },
-  error: {
-    position: 'absolute',
-    left: spacing.base,
-    right: spacing.base,
-    fontSize: typography.footnote.fontSize,
-    textAlign: 'center',
-    fontWeight: '600',
-  },
+  ctaNoteError: { fontWeight: '600' },
 });
