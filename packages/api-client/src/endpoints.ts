@@ -5,6 +5,8 @@ import type {
   BookingPageDto,
   BusinessBookingDto,
   BusinessMetricsDto,
+  BusinessOfferDto,
+  BusinessSlotDto,
   CheckInResultDto,
   DiscoveryHomeDto,
   LeadDto,
@@ -148,6 +150,20 @@ export function createEndpoints(client: ApiClient) {
         leadId: string,
         input: { status?: string; notes?: string | null; attributedRevenueAmount?: number | null },
       ) => client.patch<LeadDto>(`/v1/businesses/${businessId}/leads/${leadId}`, input),
+
+      offers: (businessId: string) =>
+        client.get<{ items: BusinessOfferDto[] }>(`/v1/businesses/${businessId}/offers`),
+
+      slots: (businessId: string, days = 7) =>
+        client.get<{ items: BusinessSlotDto[] }>(`/v1/businesses/${businessId}/slots`, {
+          query: { days: String(days) },
+        }),
+
+      setOfferPaused: (offerId: string, paused: boolean) =>
+        client.post<{ ok: true }>(`/v1/offers/${offerId}/pause`, { paused }),
+
+      cancelSlot: (slotId: string, reason: string) =>
+        client.post<{ affectedReservations: number }>(`/v1/slots/${slotId}/cancel`, { reason }),
     },
   };
 }

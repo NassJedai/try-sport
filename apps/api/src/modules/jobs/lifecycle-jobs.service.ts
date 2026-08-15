@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { and, eq, lt, sql } from 'drizzle-orm';
+import { and, eq, inArray, lt, sql } from 'drizzle-orm';
 import { schema, tryAcquireLock } from '@try/database';
 import type { Database } from '@try/database';
 import type { Clock } from '@try/utils';
@@ -190,7 +190,13 @@ export class LifecycleJobsService {
           .update(schema.trialHistory)
           .set({ status: 'NO_SHOW', updatedAt: now })
           .where(
-            sql`${schema.trialHistory.reservationId} = ANY(${rows.map((row) => row.id)}::uuid[])`,
+            // `inArray`, jamais « = ANY(tableau interpolé) » : Drizzle déplie un tableau
+            // JS en tuple, que Postgres refuse de caster. Ce job aurait crashé
+            // à son premier no-show réel — jamais avant.
+            inArray(
+              schema.trialHistory.reservationId,
+              rows.map((row) => row.id),
+            ),
           );
 
         this.logger.info({ count: rows.length }, 'marked no-shows');

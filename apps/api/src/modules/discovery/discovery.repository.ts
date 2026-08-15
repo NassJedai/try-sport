@@ -117,10 +117,10 @@ export class DiscoveryRepository {
       conditions.push(sql`v.city_id = ${query.cityId}`);
     }
     if (query.categoryIds?.length) {
-      conditions.push(sql`o.category_id = ANY(${query.categoryIds}::uuid[])`);
+      conditions.push(sql`o.category_id IN ${query.categoryIds}`);
     }
     if (query.districtIds?.length) {
-      conditions.push(sql`v.district_id = ANY(${query.districtIds}::uuid[])`);
+      conditions.push(sql`v.district_id IN ${query.districtIds}`);
     }
     if (query.freeOnly) {
       conditions.push(sql`o.price_amount = 0`);
@@ -132,10 +132,10 @@ export class DiscoveryRepository {
       conditions.push(sql`v.average_rating_hundredths >= ${Math.round(query.minRating * 100)}`);
     }
     if (query.experienceTypes?.length) {
-      conditions.push(sql`o.experience_type = ANY(${query.experienceTypes}::experience_type[])`);
+      conditions.push(sql`o.experience_type IN ${query.experienceTypes}`);
     }
     if (query.skillLevels?.length) {
-      conditions.push(sql`o.skill_level = ANY(${query.skillLevels}::skill_level[])`);
+      conditions.push(sql`o.skill_level IN ${query.skillLevels}`);
     }
     if (query.search) {
       // websearch_to_tsquery tolerates the punctuation people actually type.
@@ -287,7 +287,7 @@ export class DiscoveryRepository {
     ];
 
     if (input.categoryIds?.length) {
-      conditions.push(sql`o.category_id = ANY(${input.categoryIds}::uuid[])`);
+      conditions.push(sql`o.category_id IN ${input.categoryIds}`);
     }
     if (input.freeOnly) conditions.push(sql`o.price_amount = 0`);
     if (input.maxPrice !== undefined) conditions.push(sql`o.price_amount <= ${input.maxPrice}`);
@@ -363,7 +363,7 @@ export class DiscoveryRepository {
         FROM offer_images oi WHERE oi.offer_id = o.id
         ORDER BY oi.sort_order ASC LIMIT 1
       ) img ON TRUE
-      WHERE o.id = ANY(${offerIds}::uuid[])
+      WHERE o.id IN ${offerIds}
         AND o.deleted_at IS NULL
     `);
 
@@ -436,7 +436,7 @@ export class DiscoveryRepository {
   async findFavoriteOfferIds(userId: string, offerIds: string[]): Promise<Set<string>> {
     if (offerIds.length === 0) return new Set();
     const rows = await this.db.execute(
-      sql`SELECT offer_id FROM favorites WHERE user_id = ${userId} AND offer_id = ANY(${offerIds}::uuid[])`,
+      sql`SELECT offer_id FROM favorites WHERE user_id = ${userId} AND offer_id IN ${offerIds}`,
     );
     return new Set((rows as unknown as { offer_id: string }[]).map((row) => row.offer_id));
   }

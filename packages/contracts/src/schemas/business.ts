@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { BUSINESS_ROLES, LEAD_STATUSES, RESERVATION_STATUSES, SUPPORTED_LOCALES } from '../enums.js';
+import { BUSINESS_ROLES, LEAD_STATUSES, OFFER_STATUSES, RESERVATION_STATUSES, SLOT_STATUSES, SUPPORTED_LOCALES } from '../enums.js';
 import {
   cursorPageSchema,
   cursorPaginationSchema,
@@ -174,3 +174,37 @@ export const inviteMemberSchema = z.object({
   role: z.enum(BUSINESS_ROLES),
 });
 export type InviteMemberDto = z.infer<typeof inviteMemberSchema>;
+
+/**
+ * Une offre vue par son propriétaire.
+ *
+ * Ce n'est pas la carte publique : le gérant voit aussi ce que le client ne
+ * doit pas voir — le statut de modération, le motif de refus, la pause.
+ */
+export const businessOfferSchema = z.object({
+  id: uuidSchema,
+  title: z.string(),
+  status: z.enum(OFFER_STATUSES),
+  venueName: z.string(),
+  priceAmount: z.int().nonnegative(),
+  durationMinutes: z.int().positive(),
+  capacity: z.int().positive(),
+  rejectedReason: z.string().nullable(),
+  /** Prochains créneaux ouverts — le chiffre qui dit si l'offre vit. */
+  upcomingSlots: z.int().nonnegative(),
+});
+export type BusinessOfferDto = z.infer<typeof businessOfferSchema>;
+
+/** Un créneau du planning, avec son remplissage. */
+export const businessSlotSchema = z.object({
+  id: uuidSchema,
+  offerId: uuidSchema,
+  offerTitle: z.string(),
+  venueName: z.string(),
+  startAt: isoDateTimeSchema,
+  endAt: isoDateTimeSchema,
+  capacity: z.int().positive(),
+  reservedCount: z.int().nonnegative(),
+  status: z.enum(SLOT_STATUSES),
+});
+export type BusinessSlotDto = z.infer<typeof businessSlotSchema>;

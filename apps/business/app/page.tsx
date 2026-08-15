@@ -67,6 +67,14 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-3xl font-bold">Tableau de bord</h1>
           <p className="mt-1 text-ink-500">Tes essais et ce qu’ils rapportent.</p>
+          <nav className="mt-3 flex gap-4 text-sm font-semibold" aria-label="Sections">
+            <a href="/leads" className="text-accent hover:underline">
+              Prospects
+            </a>
+            <a href="/offers" className="text-accent hover:underline">
+              Offres & planning
+            </a>
+          </nav>
         </div>
 
         <div className="flex gap-2" role="group" aria-label="Période">

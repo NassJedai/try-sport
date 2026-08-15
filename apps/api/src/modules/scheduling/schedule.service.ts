@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, lt, or, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, lt, or, isNull, sql } from 'drizzle-orm';
 import { addMinutes, zonedDayKey, zonedTimeToUtc } from '@try/utils';
 import type { Clock } from '@try/utils';
 import { schema } from '@try/database';
@@ -300,7 +300,14 @@ export class ScheduleService {
           .update(schema.trialHistory)
           .set({ status: 'CANCELLED_BUSINESS', updatedAt: now })
           .where(
-            sql`${schema.trialHistory.reservationId} = ANY(${affected.map((row) => row.id)}::uuid[])`,
+            // `inArray`, jamais « = ANY(tableau interpolé) » : le template sql de Drizzle
+            // déplie un tableau JS en tuple « ($1, $2) », que Postgres refuse de
+            // caster en tableau. Découvert quand la première annulation réelle
+            // d'un créneau a rendu une 500 au gérant.
+            inArray(
+              schema.trialHistory.reservationId,
+              affected.map((row) => row.id),
+            ),
           );
       }
 

@@ -10,6 +10,8 @@ import {
 import type {
   BusinessBookingDto,
   BusinessMetricsDto,
+  BusinessOfferDto,
+  BusinessSlotDto,
   LeadDto,
 } from '@try/contracts';
 import { CurrentUser, type AuthenticatedUser } from '../../common/auth/current-user.js';
@@ -44,6 +46,30 @@ export class BusinessController {
       from: new Date(dto.from),
       to: new Date(`${dto.to}T23:59:59.999Z`),
     });
+  }
+
+  @Get(':businessId/offers')
+  @ApiOperation({ summary: 'Own offers with moderation status and upcoming slot counts' })
+  offers(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('businessId', new ZodValidationPipe(uuidSchema)) businessId: string,
+  ): Promise<{ items: BusinessOfferDto[] }> {
+    // STAFF voit ; les mutations (pause, annulation) exigent MANAGER plus loin.
+    this.business.assertMember(user, businessId, 'STAFF');
+    return this.business.listOffers(businessId);
+  }
+
+  @Get(':businessId/slots')
+  @ApiOperation({ summary: 'Upcoming slots with fill rates' })
+  slots(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('businessId', new ZodValidationPipe(uuidSchema)) businessId: string,
+    @Query('days') days?: string,
+  ): Promise<{ items: BusinessSlotDto[] }> {
+    this.business.assertMember(user, businessId, 'STAFF');
+    // Borné : le planning est un écran de travail, pas un export.
+    const horizon = Math.min(Math.max(Number(days) || 7, 1), 30);
+    return this.business.listSlots(businessId, horizon);
   }
 
   @Get(':businessId/bookings')

@@ -7,6 +7,8 @@ import type { Database } from '@try/database';
 import type {
   BusinessBookingDto,
   BusinessMetricsDto,
+  BusinessOfferDto,
+  BusinessSlotDto,
   LeadDto,
   ListBusinessBookingsQueryDto,
   ListLeadsQueryDto,
@@ -117,6 +119,83 @@ export class BusinessService {
   }
 
   /** Today's list at the front desk: who is coming, and their code. */
+  /**
+   * Les offres du gérant, telles qu'il doit les voir : avec le statut de
+   * modération, le motif de refus et le nombre de créneaux à venir — le chiffre
+   * qui dit en un coup d'œil si une offre vit ou si elle est à l'arrêt.
+   */
+  async listOffers(businessId: string): Promise<{ items: BusinessOfferDto[] }> {
+    const now = this.clock.now();
+
+    const rows = await this.db
+      .select({
+        id: schema.offers.id,
+        title: schema.offers.title,
+        status: schema.offers.status,
+        venueName: schema.venues.name,
+        priceAmount: schema.offers.priceAmount,
+        durationMinutes: schema.offers.durationMinutes,
+        capacity: schema.offers.capacity,
+        rejectedReason: schema.offers.rejectedReason,
+        upcomingSlots: sql<number>`(
+          SELECT COUNT(*) FROM slots s
+          WHERE s.offer_id = ${schema.offers.id}
+            AND s.start_at > ${now.toISOString()}
+            AND s.status IN ('OPEN', 'FULL')
+        )::int`,
+      })
+      .from(schema.offers)
+      .innerJoin(schema.venues, eq(schema.venues.id, schema.offers.venueId))
+      .where(eq(schema.offers.businessId, businessId))
+      .orderBy(schema.offers.createdAt);
+
+    return { items: rows };
+  }
+
+  /**
+   * Le planning des prochains jours, avec le remplissage de chaque créneau.
+   *
+   * Les créneaux annulés restent visibles : un gérant qui vient d'annuler doit
+   * voir que l'annulation a pris, pas un trou inexpliqué dans sa grille.
+   */
+  async listSlots(businessId: string, days: number): Promise<{ items: BusinessSlotDto[] }> {
+    const now = this.clock.now();
+    const horizon = new Date(now.getTime() + days * 86_400_000);
+
+    const rows = await this.db
+      .select({
+        id: schema.slots.id,
+        offerId: schema.slots.offerId,
+        offerTitle: schema.offers.title,
+        venueName: schema.venues.name,
+        startAt: schema.slots.startAt,
+        endAt: schema.slots.endAt,
+        capacity: schema.slots.capacity,
+        reservedCount: schema.slots.reservedCount,
+        status: schema.slots.status,
+      })
+      .from(schema.slots)
+      .innerJoin(schema.offers, eq(schema.offers.id, schema.slots.offerId))
+      .innerJoin(schema.venues, eq(schema.venues.id, schema.slots.venueId))
+      .where(
+        and(
+          eq(schema.offers.businessId, businessId),
+          gte(schema.slots.startAt, now),
+          lte(schema.slots.startAt, horizon),
+        ),
+      )
+      .orderBy(schema.slots.startAt)
+      .limit(200);
+
+    return {
+      items: rows.map((row) => ({
+        ...row,
+        startAt: row.startAt.toISOString(),
+        endAt: row.endAt.toISOString(),
+      })),
+    };
+  }
+
   async listBookings(
     businessId: string,
     query: ListBusinessBookingsQueryDto,

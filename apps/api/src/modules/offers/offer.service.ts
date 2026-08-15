@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, gte, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import {
   CANCELLATION_POLICY_DEFINITIONS,
   TRIAL_CONSUMING_STATUSES,
@@ -314,7 +314,9 @@ export class OfferService {
         and(
           eq(schema.trialHistory.userId, userId),
           eq(schema.trialHistory.businessId, offer.businessId),
-          sql`${schema.trialHistory.status} = ANY(${[...TRIAL_CONSUMING_STATUSES]}::reservation_status[])`,
+          // `inArray`, jamais « = ANY(tableau interpolé) » : Drizzle déplie un tableau JS
+          // en tuple « ($1, $2) », que Postgres refuse de caster en tableau.
+          inArray(schema.trialHistory.status, [...TRIAL_CONSUMING_STATUSES]),
         ),
       );
 
