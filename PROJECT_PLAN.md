@@ -1,4 +1,6 @@
-# TRY — Project Plan
+# TRIALYA — Project Plan
+
+*(code name: TRY — see "Marque et nommage" in `CLAUDE.md`)*
 
 Sports discovery marketplace. Launch Brussels, architected for Belgium → Benelux →
 Europe without a rewrite.

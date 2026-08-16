@@ -436,7 +436,7 @@ export default function OnboardingPage() {
             disabled={finish.isPending || daysOfWeek.length === 0}
             className="min-h-12 rounded-card bg-accent font-semibold text-on-accent disabled:opacity-50"
           >
-            {finish.isPending ? 'Envoi…' : 'Soumettre à TRY'}
+            {finish.isPending ? 'Envoi…' : 'Soumettre à TRIALYA'}
           </button>
         </form>
       )}
@@ -446,7 +446,7 @@ export default function OnboardingPage() {
           <p className="text-4xl" aria-hidden>✓</p>
           <h1 className="mt-2 text-2xl font-bold text-success">C’est envoyé</h1>
           <p className="mt-2 text-text-secondary">
-            Ton lieu et ton offre sont en cours de vérification par l’équipe TRY. Tu recevras une
+            Ton lieu et ton offre sont en cours de vérification par l’équipe TRIALYA. Tu recevras une
             réponse rapidement — en attendant, ton tableau de bord est prêt.
           </p>
           <a

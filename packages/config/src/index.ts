@@ -63,7 +63,7 @@ const baseSchema = z.object({
    */
   MEDIA_DIR: z.string().default('.media'),
 
-  EMAIL_FROM: z.string().default('TRY <hello@try.local>'),
+  EMAIL_FROM: z.string().default('TRIALYA <hello@try.local>'),
   RESEND_API_KEY: z.string().optional(),
 
   POSTHOG_API_KEY: z.string().optional(),

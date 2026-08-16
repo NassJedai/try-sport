@@ -273,7 +273,7 @@ export class OfferService {
         rating: review.rating,
         comment: review.comment,
         // Only a first name is ever published alongside a review.
-        authorFirstName: review.firstName ?? 'Membre TRY',
+        authorFirstName: review.firstName ?? 'Membre TRIALYA',
         createdAt: review.createdAt.toISOString(),
       })),
     };

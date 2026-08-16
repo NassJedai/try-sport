@@ -41,7 +41,7 @@ export default function SignInPage() {
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center p-6">
       <h1 className="text-3xl font-bold">
-        {step === 'email' ? 'Console TRY' : 'Ton code'}
+        {step === 'email' ? 'Console TRIALYA' : 'Ton code'}
       </h1>
       <p className="mt-2 text-text-secondary">
         {step === 'email'
@@ -122,7 +122,7 @@ export default function SignInPage() {
       </form>
 
       <p className="mt-8 text-xs text-text-tertiary">
-        Accès réservé à l’équipe TRY.
+        Accès réservé à l’équipe TRIALYA.
       </p>
     </main>
   );

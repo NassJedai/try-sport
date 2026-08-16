@@ -44,7 +44,7 @@ export default function DashboardPage() {
     return (
       <main className="mx-auto max-w-2xl p-8">
         <h1 className="text-2xl font-bold">
-          {isSignedIn ? 'Bienvenue sur TRY Business' : 'Connecte-toi'}
+          {isSignedIn ? 'Bienvenue sur TRIALYA Business' : 'Connecte-toi'}
         </h1>
         <p className="mt-2 text-text-secondary">
           {isSignedIn

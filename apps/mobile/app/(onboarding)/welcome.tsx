@@ -15,8 +15,8 @@ const { width } = Dimensions.get('window');
  */
 const SLIDES = [
   {
-    title: 'TRY',
-    body: 'Découvre de nouvelles façons de bouger.',
+    title: 'TRIALYA',
+    body: 'Try first. Decide later.',
   },
   {
     title: 'Les meilleures expériences sportives autour de toi.',

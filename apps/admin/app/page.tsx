@@ -34,7 +34,7 @@ export default function AdminOverviewPage() {
       <main className="mx-auto max-w-md p-10 text-center">
         <h1 className="text-2xl font-bold">Accès restreint</h1>
         <p className="mt-2 text-text-secondary">
-          Cette console est réservée à l’équipe TRY. Connecte-toi avec un compte administrateur.
+          Cette console est réservée à l’équipe TRIALYA. Connecte-toi avec un compte administrateur.
         </p>
         <a
           href="/sign-in"

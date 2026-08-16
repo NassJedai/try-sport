@@ -3,7 +3,7 @@ import { Providers } from '@/components/providers';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'TRY Business',
+  title: 'TRIALYA Business',
   description: 'Reçois des essais, transforme-les en clients.',
 };
 

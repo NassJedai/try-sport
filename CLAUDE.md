@@ -1,11 +1,37 @@
-# TRY
+# TRIALYA — nom de code : TRY
 
-Marketplace de découverte sportive. Trouver une activité près de chez soi,
-l'essayer une fois sans engagement, décider ensuite. Lancement Bruxelles,
-architecture prévue pour Belgique → Benelux → Europe sans réécriture.
+**Le produit s'appelle TRIALYA. Le code s'appelle TRY.** Les deux coexistent par
+décision, pas par négligence : `@try/contracts`, `be.try.app`, `try://` et le nom
+du dépôt sont des identifiants techniques et restent tels quels. Il n'y a aucun
+renommage du code à faire, ni dans un sens ni dans l'autre.
+
+Marketplace de découverte sportive — **« Try first. Decide later. »** Trouver une
+activité près de chez soi, l'essayer une fois sans engagement, décider ensuite.
+Lancement Bruxelles, architecture prévue pour Belgique → Benelux → Europe sans
+réécriture.
 
 Voir `PROJECT_PLAN.md` pour l'état d'avancement et les lacunes connues,
 `docs/adr/` pour le pourquoi des décisions structurantes.
+
+---
+
+## Marque et nommage
+
+**Tout texte vu par un utilisateur dit TRIALYA ; tout identifiant technique reste
+TRY.** Une seule question à se poser : est-ce que cette chaîne peut finir sous
+les yeux d'un client ou d'un gérant ?
+
+- **TRIALYA** — interfaces des quatre apps, fiches App Store et Play Store,
+  e-mails, notifications, site public, communication, contrats, factures.
+- **TRY** — paquets `@try/*`, dépôt et chemins, bundle ids `be.try.app`, schéma
+  de liens profonds `try://`, domaines techniques, noms de variables, de tables
+  et de colonnes, titres OpenAPI internes.
+
+Le slogan **« Try first. Decide later. »** joue sur le verbe *to try* : c'est
+exactement ce qui rend la cohabitation saine plutôt que bancale. TRIALYA est le
+nom que le public lit, TRY est le verbe qui a donné son nom au code. Voir un
+`@try/contracts` dans TRIALYA est normal — ce n'est pas une incohérence à
+corriger.
 
 ---
 
@@ -109,14 +135,14 @@ choisie, puis bascule sur la tarification normale de la salle. Le gérant choisi
 la portée, jamais le nombre : **une seule séance découverte**, c'est une règle de
 plateforme et non un paramètre.
 
-C'est cette règle qui fait de TRY une marketplace de découverte et non un site de
-bons plans. Une demande visant à offrir plusieurs séances découvertes se traite
-par une offre distincte (`DISCOVERY_PACK`) à tarification propre, jamais en
-assouplissant l'allocation d'essai.
+C'est cette règle qui fait de TRIALYA une marketplace de découverte et non un
+site de bons plans. Une demande visant à offrir plusieurs séances découvertes se
+traite par une offre distincte (`DISCOVERY_PACK`) à tarification propre, jamais
+en assouplissant l'allocation d'essai.
 
 ### Le modèle économique
 
-- **Rejoindre TRY est gratuit pour les salles**, dans un premier temps. Pas
+- **Rejoindre TRIALYA est gratuit pour les salles**, dans un premier temps. Pas
   d'abonnement, pas de frais d'entrée.
 - **Sur une séance payante, la plateforme prend 25 %** — soit `2500` points de
   base. Le taux est stocké par salle et peut être négocié au contrat sans

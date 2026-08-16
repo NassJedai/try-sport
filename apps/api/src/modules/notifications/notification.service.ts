@@ -76,7 +76,7 @@ export class NotificationService {
   }): Promise<void> {
     await this.safeSend({
       to: input.email,
-      subject: `${input.code} — ton code de connexion TRY`,
+      subject: `${input.code} — ton code de connexion TRIALYA`,
       body: [
         `Ton code de connexion est ${input.code}.`,
         `Il expire dans ${input.expiresInMinutes} minutes.`,

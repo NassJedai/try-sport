@@ -1,7 +1,10 @@
-# TRY
+# TRIALYA — code name: TRY
+
+The product is TRIALYA; the code is TRY. Packages (`@try/*`), bundle ids and this
+repository keep the technical name — see "Marque et nommage" in `CLAUDE.md`.
 
 Sports discovery marketplace. Find an activity near you, try it once without
-commitment, and decide afterwards.
+commitment, and decide afterwards. *Try first. Decide later.*
 
 Launching in Brussels; architected for Belgium → Benelux → Europe without a
 rewrite.

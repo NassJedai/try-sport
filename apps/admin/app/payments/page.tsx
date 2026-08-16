@@ -28,7 +28,7 @@ export default function AdminPaymentsPage() {
       <a href="/" className="text-sm text-text-secondary underline">← Vue d’ensemble</a>
       <h1 className="mt-2 text-3xl font-bold">Paiements</h1>
       <p className="mt-1 text-text-secondary">
-        Montants encaissés, commission TRY et remboursements. L’identifiant Stripe permet de
+        Montants encaissés, commission TRIALYA et remboursements. L’identifiant Stripe permet de
         retrouver la transaction dans leur dashboard.
       </p>
 

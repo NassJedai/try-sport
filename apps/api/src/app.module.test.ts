@@ -80,7 +80,7 @@ describe('AppModule dependency graph', () => {
   it('switches to the real transport as soon as a key is configured', async () => {
     const withKey = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(CONFIG)
-      .useValue({ RESEND_API_KEY: 're_test_key', EMAIL_FROM: 'TRY <hello@try.local>' })
+      .useValue({ RESEND_API_KEY: 're_test_key', EMAIL_FROM: 'TRIALYA <hello@try.local>' })
       .overrideProvider(DATABASE)
       .useValue({})
       .overrideProvider(DATABASE_HANDLE)
