@@ -193,8 +193,31 @@ views. The endpoints they need beyond `/v1/admin/overview` do not exist yet.
 recurring schedule that materialises real slots ✔ · submit for approval ✔ ·
 pause/resume ✔ · cancel a slot and release its bookings ✔
 
-The business web app currently exposes the dashboard, bookings and CRM; the
-onboarding wizard UI on top of these endpoints is not built.
+The business web app exposes the dashboard, bookings, CRM, offers — **and the
+onboarding wizard**: `apps/business/app/onboarding/page.tsx` walks business →
+venue → offer → schedule → submit, refreshes the token after business creation
+(the JWT carries memberships, so the next call would 403 without it), and derives
+lat/lon from the commune centroid since no geocoding endpoint exists.
+
+What is missing is not the wizard but **autonomy**. Three gaps stop a manager from
+signing up unaided, and the first two block V1:
+
+1. **No correction path after a rejection.** `updateVenueSchema` and
+   `updateOfferSchema` exist in `packages/contracts` but no endpoint consumes
+   them. A rejected venue is a dead end for its manager, even though
+   `moderation-state-machine.ts:36-40` explicitly allows `REJECTED →
+   PENDING_APPROVAL`.
+2. **Moderation decisions are silent.** `NotificationService` only sends the OTP
+   code, booking confirmations and reminders — nothing on approval or rejection.
+   The wizard's closing screen promises a reply that no code ever sends.
+3. **A draft venue with no offer is unreachable.** `GET /v1/businesses/:id/offers`
+   inner-joins venues, and no `GET .../venues` exists, so a manager who stops
+   between the venue and offer steps cannot recover the venue and will silently
+   create a duplicate.
+
+Also unexposed by the wizard today: photos (`PhotoManager` is wired to `/offers`
+only), every optional venue and offer field, and five of the seven
+`experienceType` values — the wizard infers the type from the price.
 
 ---
 
