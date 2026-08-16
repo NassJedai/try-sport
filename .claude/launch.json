@@ -1,37 +1,27 @@
 {
-  "//": "The preview launcher cannot read files under ~/Desktop on this machine (EPERM on open). A probe running entirely from /tmp started fine, so the launcher itself works — the project's location is the constraint. These configurations therefore ATTACH to servers started from a context that does have access (`pnpm business`, `pnpm api`, `pnpm admin`), rather than spawning them. Move the repo to a path outside ~/Desktop with no spaces (e.g. ~/dev/try-sport) and the command-based configurations in the comment below will work directly — that move is also required for any native mobile build, since Metro and Gradle break on spaces in paths.",
+  "//": "Le dépôt vit désormais sous ~/dev/try-sport : chemin sans espaces et hors de ~/Desktop, où le lanceur d'aperçu se heurtait à un EPERM. Les configurations démarrent donc les serveurs elles-mêmes, au lieu de s'attacher à un processus lancé à la main. Ce chemin est aussi la condition d'un build mobile natif — Metro et Gradle cassent sur les espaces.",
 
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "dev",
-      "url": "http://localhost:3001",
-      "port": 3001
-    },
-    {
       "name": "business",
-      "url": "http://localhost:3001",
-      "port": 3001
-    },
-    {
-      "name": "api",
-      "url": "http://localhost:3000",
-      "port": 3000
-    },
-    {
-      "name": "admin",
-      "url": "http://localhost:3002",
-      "port": 3002
-    }
-  ],
-
-  "//onceRelocated": {
-    "note": "After moving the repo off ~/Desktop, replace a configuration above with this shape to have the launcher start the server itself.",
-    "example": {
-      "name": "dev",
       "runtimeExecutable": "node_modules/.bin/next",
       "runtimeArgs": ["dev", "apps/business", "-p", "3001"],
       "port": 3001
+    },
+    {
+      "name": "admin",
+      "runtimeExecutable": "node_modules/.bin/next",
+      "runtimeArgs": ["dev", "apps/admin", "-p", "3002"],
+      "port": 3002
+    },
+    {
+      "//": "L'API a besoin de Postgres avec PostGIS sur le port du DATABASE_URL. Elle ne sert pas d'interface : l'aperçu s'ouvre sur /docs.",
+      "name": "api",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@try/api", "dev"],
+      "port": 3000,
+      "url": "http://localhost:3000/docs"
     }
-  }
+  ]
 }
