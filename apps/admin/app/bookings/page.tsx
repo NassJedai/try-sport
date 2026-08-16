@@ -41,7 +41,7 @@ export default function AdminBookingsPage() {
           type="button"
           onClick={() => setStatus(undefined)}
           aria-pressed={status === undefined}
-          className={`min-h-11 rounded-[--radius-pill] px-4 text-sm font-semibold ${status === undefined ? 'bg-accent text-white' : 'bg-surface-muted text-ink-500'}`}
+          className={`min-h-11 rounded-pill px-4 text-sm font-semibold ${status === undefined ? 'bg-accent text-white' : 'bg-surface-muted text-ink-500'}`}
         >
           Toutes
         </button>
@@ -51,7 +51,7 @@ export default function AdminBookingsPage() {
             type="button"
             onClick={() => setStatus(value)}
             aria-pressed={status === value}
-            className={`min-h-11 rounded-[--radius-pill] px-3 text-xs font-semibold ${status === value ? 'bg-accent text-white' : 'bg-surface-muted text-ink-500'}`}
+            className={`min-h-11 rounded-pill px-3 text-xs font-semibold ${status === value ? 'bg-accent text-white' : 'bg-surface-muted text-ink-500'}`}
           >
             {value}
           </button>
@@ -59,11 +59,11 @@ export default function AdminBookingsPage() {
       </div>
 
       {isError ? (
-        <p role="alert" className="mt-6 rounded-[--radius-card] bg-danger-subtle p-4 text-danger">
+        <p role="alert" className="mt-6 rounded-card bg-danger-subtle p-4 text-danger">
           {error instanceof ApiError ? error.message : 'Chargement impossible.'}
         </p>
       ) : (
-        <div className="mt-6 overflow-x-auto rounded-[--radius-card] bg-surface shadow-sm">
+        <div className="mt-6 overflow-x-auto rounded-card bg-surface shadow-sm">
           <table className="w-full min-w-[760px] text-left text-sm">
             <caption className="sr-only">Dernières réservations</caption>
             <thead className="bg-surface-muted text-xs uppercase tracking-wide text-ink-400">

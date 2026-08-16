@@ -67,7 +67,7 @@ export function PhotoManager({
     <div>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="font-semibold">{title}</h3>
-        <label className="cursor-pointer rounded-[--radius-card] border border-ink-200 px-4 py-2 text-sm font-semibold hover:bg-surface-muted">
+        <label className="cursor-pointer rounded-card border border-ink-200 px-4 py-2 text-sm font-semibold hover:bg-surface-muted">
           {upload.isPending ? 'Envoi…' : 'Ajouter une photo'}
           <input
             ref={inputRef}
@@ -89,7 +89,7 @@ export function PhotoManager({
       {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
 
       {isLoading ? (
-        <div className="mt-3 h-24 w-40 animate-pulse rounded-[--radius-card] bg-surface-muted" aria-hidden />
+        <div className="mt-3 h-24 w-40 animate-pulse rounded-card bg-surface-muted" aria-hidden />
       ) : items.length === 0 ? (
         <p className="mt-2 text-sm text-ink-500">
           Aucune photo. Les lieux avec photos convertissent nettement mieux — ajoute au moins ta
@@ -107,7 +107,7 @@ export function PhotoManager({
                 alt=""
                 width={160}
                 height={120}
-                className="h-28 w-40 rounded-[--radius-card] object-cover"
+                className="h-28 w-40 rounded-card object-cover"
               />
               <button
                 type="button"

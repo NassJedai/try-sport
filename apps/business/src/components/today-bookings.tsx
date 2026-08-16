@@ -65,7 +65,7 @@ export function TodayBookings({ businessId }: { businessId: string }) {
       {feedback && (
         <p
           role="status"
-          className={`mb-4 rounded-[--radius-card] p-3 text-sm font-medium ${
+          className={`mb-4 rounded-card p-3 text-sm font-medium ${
             feedback.tone === 'ok'
               ? 'bg-success-subtle text-success'
               : 'bg-danger-subtle text-danger'
@@ -77,15 +77,15 @@ export function TodayBookings({ businessId }: { businessId: string }) {
 
       {isLoading ? (
         <div className="space-y-2" aria-hidden>
-          <div className="h-16 animate-pulse rounded-[--radius-card] bg-surface-muted" />
-          <div className="h-16 animate-pulse rounded-[--radius-card] bg-surface-muted" />
+          <div className="h-16 animate-pulse rounded-card bg-surface-muted" />
+          <div className="h-16 animate-pulse rounded-card bg-surface-muted" />
         </div>
       ) : bookings.length === 0 ? (
-        <p className="rounded-[--radius-card] bg-surface p-6 text-ink-500">
+        <p className="rounded-card bg-surface p-6 text-ink-500">
           Aucune séance prévue aujourd’hui.
         </p>
       ) : (
-        <div className="overflow-hidden rounded-[--radius-card] bg-surface shadow-sm">
+        <div className="overflow-hidden rounded-card bg-surface shadow-sm">
           <table className="w-full text-left text-sm">
             <caption className="sr-only">Réservations du jour avec leur statut de check-in</caption>
             <thead className="bg-surface-muted text-xs uppercase tracking-wide text-ink-400">
@@ -106,7 +106,7 @@ export function TodayBookings({ businessId }: { businessId: string }) {
                   <td className="px-4 py-3">
                     {booking.attendeeFirstName}
                     {booking.isFirstVisit && (
-                      <span className="ml-2 rounded-[--radius-pill] bg-accent-subtle px-2 py-0.5 text-xs font-semibold text-accent">
+                      <span className="ml-2 rounded-pill bg-accent-subtle px-2 py-0.5 text-xs font-semibold text-accent">
                         1re visite
                       </span>
                     )}
@@ -149,7 +149,7 @@ export function TodayBookings({ businessId }: { businessId: string }) {
               id="checkin-venue"
               value={selectedVenueId ?? ''}
               onChange={(event) => setSelectedVenueId(event.target.value)}
-              className="min-h-11 rounded-[--radius-card] border border-border bg-surface px-3"
+              className="min-h-11 rounded-card border border-border bg-surface px-3"
             >
               {venues.map((venue) => (
                 <option key={venue.id} value={venue.id}>
@@ -169,12 +169,12 @@ export function TodayBookings({ businessId }: { businessId: string }) {
           onChange={(event) => setCode(event.target.value.toUpperCase())}
           placeholder="K7QP-3XN9"
           autoComplete="off"
-          className="min-h-11 flex-1 rounded-[--radius-card] border border-border bg-surface px-4 font-mono uppercase"
+          className="min-h-11 flex-1 rounded-card border border-border bg-surface px-4 font-mono uppercase"
         />
         <button
           type="submit"
           disabled={code.length < 8 || checkIn.isPending}
-          className="min-h-11 rounded-[--radius-card] bg-accent px-6 font-semibold text-white disabled:opacity-50"
+          className="min-h-11 rounded-card bg-accent px-6 font-semibold text-white disabled:opacity-50"
         >
           {checkIn.isPending ? 'Validation…' : 'Valider le code'}
         </button>

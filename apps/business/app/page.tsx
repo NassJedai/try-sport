@@ -53,7 +53,7 @@ export default function DashboardPage() {
         </p>
         <a
           href={isSignedIn ? '/onboarding' : '/sign-in'}
-          className="mt-6 inline-block rounded-[--radius-card] bg-accent px-5 py-3 font-semibold text-white"
+          className="mt-6 inline-block rounded-card bg-accent px-5 py-3 font-semibold text-white"
         >
           {isSignedIn ? 'Inscrire mon établissement' : 'Se connecter'}
         </a>
@@ -84,7 +84,7 @@ export default function DashboardPage() {
               type="button"
               onClick={() => setDays(value)}
               aria-pressed={days === value}
-              className={`min-h-11 rounded-[--radius-pill] px-4 text-sm font-semibold transition ${
+              className={`min-h-11 rounded-pill px-4 text-sm font-semibold transition ${
                 days === value
                   ? 'bg-accent text-white'
                   : 'bg-surface-muted text-ink-500 hover:bg-ink-200'
@@ -97,7 +97,7 @@ export default function DashboardPage() {
       </header>
 
       {isError ? (
-        <p role="alert" className="rounded-[--radius-card] bg-danger-subtle p-4 text-danger">
+        <p role="alert" className="rounded-card bg-danger-subtle p-4 text-danger">
           Impossible de charger tes statistiques. Réessaie dans quelques instants.
         </p>
       ) : (
@@ -124,7 +124,7 @@ export default function DashboardPage() {
             />
           </section>
 
-          <section className="mt-6 rounded-[--radius-card] bg-surface p-5 shadow-sm">
+          <section className="mt-6 rounded-card bg-surface p-5 shadow-sm">
             <h2 className="text-lg font-semibold">Ton entonnoir</h2>
             <p className="mt-1 text-sm text-ink-500">
               {data?.trials ?? 0} essais réservés → {data?.checkIns ?? 0} venus (
@@ -132,7 +132,7 @@ export default function DashboardPage() {
               clients ({data ? (data.conversionRate * 100).toFixed(0) : 0}%)
             </p>
             <div
-              className="mt-4 flex h-3 overflow-hidden rounded-[--radius-pill] bg-surface-muted"
+              className="mt-4 flex h-3 overflow-hidden rounded-pill bg-surface-muted"
               role="img"
               aria-label={`Taux de présence ${data ? (data.attendanceRate * 100).toFixed(0) : 0}%, conversion ${data ? (data.conversionRate * 100).toFixed(0) : 0}%`}
             >

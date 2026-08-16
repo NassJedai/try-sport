@@ -64,7 +64,7 @@ export default function LeadsPage() {
           type="button"
           onClick={() => setStatus(undefined)}
           aria-pressed={status === undefined}
-          className={`min-h-11 rounded-[--radius-pill] px-4 text-sm font-semibold ${
+          className={`min-h-11 rounded-pill px-4 text-sm font-semibold ${
             status === undefined ? 'bg-accent text-white' : 'bg-surface-muted text-ink-500'
           }`}
         >
@@ -76,7 +76,7 @@ export default function LeadsPage() {
             type="button"
             onClick={() => setStatus(stage.status)}
             aria-pressed={status === stage.status}
-            className={`min-h-11 rounded-[--radius-pill] px-4 text-sm font-semibold ${
+            className={`min-h-11 rounded-pill px-4 text-sm font-semibold ${
               status === stage.status ? 'bg-accent text-white' : 'bg-surface-muted text-ink-500'
             }`}
           >
@@ -87,16 +87,16 @@ export default function LeadsPage() {
 
       {isLoading ? (
         <div className="mt-6 space-y-2" aria-hidden>
-          <div className="h-20 animate-pulse rounded-[--radius-card] bg-surface-muted" />
-          <div className="h-20 animate-pulse rounded-[--radius-card] bg-surface-muted" />
+          <div className="h-20 animate-pulse rounded-card bg-surface-muted" />
+          <div className="h-20 animate-pulse rounded-card bg-surface-muted" />
         </div>
       ) : leads.length === 0 ? (
-        <p className="mt-6 rounded-[--radius-card] bg-surface p-6 text-ink-500">
+        <p className="mt-6 rounded-card bg-surface p-6 text-ink-500">
           Aucun prospect pour ce filtre. Ils apparaissent ici dès qu’une personne vient à sa séance
           d’essai.
         </p>
       ) : (
-        <div className="mt-6 overflow-x-auto rounded-[--radius-card] bg-surface shadow-sm">
+        <div className="mt-6 overflow-x-auto rounded-card bg-surface shadow-sm">
           <table className="w-full min-w-[720px] text-left text-sm">
             <caption className="sr-only">Prospects et leur statut dans le pipeline</caption>
             <thead className="bg-surface-muted text-xs uppercase tracking-wide text-ink-400">
@@ -149,7 +149,7 @@ export default function LeadsPage() {
                           status: event.target.value as LeadStatus,
                         })
                       }
-                      className="min-h-11 rounded-[--radius-card] border border-border bg-surface px-3"
+                      className="min-h-11 rounded-card border border-border bg-surface px-3"
                     >
                       {PIPELINE.map((stage) => (
                         <option key={stage.status} value={stage.status}>

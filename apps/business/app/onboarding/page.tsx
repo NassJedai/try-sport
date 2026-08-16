@@ -213,7 +213,7 @@ export default function OnboardingPage() {
         <p className="mt-2 text-ink-500">L’inscription de ton établissement prend cinq minutes.</p>
         <a
           href="/sign-in"
-          className="mt-6 inline-block rounded-[--radius-card] bg-accent px-5 py-3 font-semibold text-white"
+          className="mt-6 inline-block rounded-card bg-accent px-5 py-3 font-semibold text-white"
         >
           Se connecter
         </a>
@@ -238,7 +238,7 @@ export default function OnboardingPage() {
       </div>
 
       {error && (
-        <p role="alert" className="mt-4 rounded-[--radius-card] bg-danger-subtle p-3 text-sm text-danger">
+        <p role="alert" className="mt-4 rounded-card bg-danger-subtle p-3 text-sm text-danger">
           {error}
         </p>
       )}
@@ -261,12 +261,12 @@ export default function OnboardingPage() {
             placeholder="Studio Exemple"
             required
             minLength={2}
-            className="min-h-12 rounded-[--radius-card] border border-border bg-surface px-4"
+            className="min-h-12 rounded-card border border-border bg-surface px-4"
           />
           <button
             type="submit"
             disabled={createBusiness.isPending || businessName.trim().length < 2}
-            className="min-h-12 rounded-[--radius-card] bg-accent font-semibold text-white disabled:opacity-50"
+            className="min-h-12 rounded-card bg-accent font-semibold text-white disabled:opacity-50"
           >
             {createBusiness.isPending ? '…' : 'Continuer'}
           </button>
@@ -285,19 +285,19 @@ export default function OnboardingPage() {
           <p className="text-ink-500">Là où les clients viendront essayer.</p>
 
           <label htmlFor="vname" className="text-sm font-semibold">Nom du lieu</label>
-          <input id="vname" value={venueName} onChange={(e) => setVenueName(e.target.value)} required minLength={2} placeholder="Studio Exemple Ixelles" className="min-h-12 rounded-[--radius-card] border border-border bg-surface px-4" />
+          <input id="vname" value={venueName} onChange={(e) => setVenueName(e.target.value)} required minLength={2} placeholder="Studio Exemple Ixelles" className="min-h-12 rounded-card border border-border bg-surface px-4" />
 
           <label htmlFor="vaddr" className="text-sm font-semibold">Adresse</label>
-          <input id="vaddr" value={addressLine} onChange={(e) => setAddressLine(e.target.value)} required minLength={4} placeholder="Rue de la Paix 10" className="min-h-12 rounded-[--radius-card] border border-border bg-surface px-4" />
+          <input id="vaddr" value={addressLine} onChange={(e) => setAddressLine(e.target.value)} required minLength={4} placeholder="Rue de la Paix 10" className="min-h-12 rounded-card border border-border bg-surface px-4" />
 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label htmlFor="vcp" className="text-sm font-semibold">Code postal</label>
-              <input id="vcp" value={postalCode} onChange={(e) => setPostalCode(e.target.value)} required placeholder="1050" className="mt-1 min-h-12 w-full rounded-[--radius-card] border border-border bg-surface px-4" />
+              <input id="vcp" value={postalCode} onChange={(e) => setPostalCode(e.target.value)} required placeholder="1050" className="mt-1 min-h-12 w-full rounded-card border border-border bg-surface px-4" />
             </div>
             <div>
               <label htmlFor="vdistrict" className="text-sm font-semibold">Commune</label>
-              <select id="vdistrict" value={districtId} onChange={(e) => setDistrictId(e.target.value)} required className="mt-1 min-h-12 w-full rounded-[--radius-card] border border-border bg-surface px-3">
+              <select id="vdistrict" value={districtId} onChange={(e) => setDistrictId(e.target.value)} required className="mt-1 min-h-12 w-full rounded-card border border-border bg-surface px-3">
                 <option value="">Choisir…</option>
                 {city?.districts.map((d) => (
                   <option key={d.id} value={d.id}>{d.name}</option>
@@ -315,7 +315,7 @@ export default function OnboardingPage() {
                   type="button"
                   onClick={() => toggleCategory(c.id)}
                   aria-pressed={categoryIds.includes(c.id)}
-                  className={`min-h-11 rounded-[--radius-pill] px-4 text-sm font-semibold ${
+                  className={`min-h-11 rounded-pill px-4 text-sm font-semibold ${
                     categoryIds.includes(c.id) ? 'bg-accent text-white' : 'bg-surface-muted text-ink-500'
                   }`}
                 >
@@ -328,7 +328,7 @@ export default function OnboardingPage() {
           <button
             type="submit"
             disabled={createVenue.isPending || categoryIds.length === 0 || !districtId}
-            className="min-h-12 rounded-[--radius-card] bg-accent font-semibold text-white disabled:opacity-50"
+            className="min-h-12 rounded-card bg-accent font-semibold text-white disabled:opacity-50"
           >
             {createVenue.isPending ? '…' : 'Continuer'}
           </button>
@@ -347,34 +347,34 @@ export default function OnboardingPage() {
           <p className="text-ink-500">Ce que les nouveaux clients pourront essayer.</p>
 
           <label htmlFor="otitle" className="text-sm font-semibold">Titre</label>
-          <input id="otitle" value={offerTitle} onChange={(e) => setOfferTitle(e.target.value)} required minLength={3} placeholder="Première séance découverte" className="min-h-12 rounded-[--radius-card] border border-border bg-surface px-4" />
+          <input id="otitle" value={offerTitle} onChange={(e) => setOfferTitle(e.target.value)} required minLength={3} placeholder="Première séance découverte" className="min-h-12 rounded-card border border-border bg-surface px-4" />
 
           <label htmlFor="odesc" className="text-sm font-semibold">Description</label>
-          <textarea id="odesc" value={offerDescription} onChange={(e) => setOfferDescription(e.target.value)} required minLength={20} rows={3} placeholder="Décris la séance : à quoi s’attendre, pour quel niveau, ce qui est fourni…" className="rounded-[--radius-card] border border-border bg-surface p-4" />
+          <textarea id="odesc" value={offerDescription} onChange={(e) => setOfferDescription(e.target.value)} required minLength={20} rows={3} placeholder="Décris la séance : à quoi s’attendre, pour quel niveau, ce qui est fourni…" className="rounded-card border border-border bg-surface p-4" />
 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label htmlFor="oprice" className="text-sm font-semibold">Prix découverte (€)</label>
-              <input id="oprice" value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" placeholder="0 = gratuit" className="mt-1 min-h-12 w-full rounded-[--radius-card] border border-border bg-surface px-4" />
+              <input id="oprice" value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" placeholder="0 = gratuit" className="mt-1 min-h-12 w-full rounded-card border border-border bg-surface px-4" />
             </div>
             <div>
               <label htmlFor="orefprice" className="text-sm font-semibold">Prix habituel (€)</label>
-              <input id="orefprice" value={referencePrice} onChange={(e) => setReferencePrice(e.target.value)} inputMode="decimal" placeholder="facultatif" className="mt-1 min-h-12 w-full rounded-[--radius-card] border border-border bg-surface px-4" />
+              <input id="orefprice" value={referencePrice} onChange={(e) => setReferencePrice(e.target.value)} inputMode="decimal" placeholder="facultatif" className="mt-1 min-h-12 w-full rounded-card border border-border bg-surface px-4" />
             </div>
             <div>
               <label htmlFor="odur" className="text-sm font-semibold">Durée (minutes)</label>
-              <input id="odur" value={duration} onChange={(e) => setDuration(e.target.value)} inputMode="numeric" required className="mt-1 min-h-12 w-full rounded-[--radius-card] border border-border bg-surface px-4" />
+              <input id="odur" value={duration} onChange={(e) => setDuration(e.target.value)} inputMode="numeric" required className="mt-1 min-h-12 w-full rounded-card border border-border bg-surface px-4" />
             </div>
             <div>
               <label htmlFor="ocap" className="text-sm font-semibold">Places par séance</label>
-              <input id="ocap" value={capacity} onChange={(e) => setCapacity(e.target.value)} inputMode="numeric" required className="mt-1 min-h-12 w-full rounded-[--radius-card] border border-border bg-surface px-4" />
+              <input id="ocap" value={capacity} onChange={(e) => setCapacity(e.target.value)} inputMode="numeric" required className="mt-1 min-h-12 w-full rounded-card border border-border bg-surface px-4" />
             </div>
           </div>
 
           {categoryIds.length > 1 && (
             <div>
               <label htmlFor="ocat" className="text-sm font-semibold">Catégorie de l’offre</label>
-              <select id="ocat" value={offerCategoryId} onChange={(e) => setOfferCategoryId(e.target.value)} className="mt-1 min-h-12 w-full rounded-[--radius-card] border border-border bg-surface px-3">
+              <select id="ocat" value={offerCategoryId} onChange={(e) => setOfferCategoryId(e.target.value)} className="mt-1 min-h-12 w-full rounded-card border border-border bg-surface px-3">
                 {categoryIds.map((id) => {
                   const c = reference.data?.categories.find((x) => x.id === id);
                   return c ? <option key={id} value={id}>{c.name}</option> : null;
@@ -386,7 +386,7 @@ export default function OnboardingPage() {
           <button
             type="submit"
             disabled={createOffer.isPending}
-            className="min-h-12 rounded-[--radius-card] bg-accent font-semibold text-white disabled:opacity-50"
+            className="min-h-12 rounded-card bg-accent font-semibold text-white disabled:opacity-50"
           >
             {createOffer.isPending ? '…' : 'Continuer'}
           </button>
@@ -416,7 +416,7 @@ export default function OnboardingPage() {
                   type="button"
                   onClick={() => toggleDay(day)}
                   aria-pressed={daysOfWeek.includes(day)}
-                  className={`min-h-11 min-w-14 rounded-[--radius-pill] px-3 text-sm font-semibold ${
+                  className={`min-h-11 min-w-14 rounded-pill px-3 text-sm font-semibold ${
                     daysOfWeek.includes(day) ? 'bg-accent text-white' : 'bg-surface-muted text-ink-500'
                   }`}
                 >
@@ -427,12 +427,12 @@ export default function OnboardingPage() {
           </fieldset>
 
           <label htmlFor="stime" className="text-sm font-semibold">Heure de début</label>
-          <input id="stime" type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} required className="min-h-12 w-40 rounded-[--radius-card] border border-border bg-surface px-4" />
+          <input id="stime" type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} required className="min-h-12 w-40 rounded-card border border-border bg-surface px-4" />
 
           <button
             type="submit"
             disabled={finish.isPending || daysOfWeek.length === 0}
-            className="min-h-12 rounded-[--radius-card] bg-accent font-semibold text-white disabled:opacity-50"
+            className="min-h-12 rounded-card bg-accent font-semibold text-white disabled:opacity-50"
           >
             {finish.isPending ? 'Envoi…' : 'Soumettre à TRY'}
           </button>
@@ -440,7 +440,7 @@ export default function OnboardingPage() {
       )}
 
       {step === 'done' && (
-        <div className="mt-10 rounded-[--radius-card] bg-success-subtle p-8 text-center">
+        <div className="mt-10 rounded-card bg-success-subtle p-8 text-center">
           <p className="text-4xl" aria-hidden>✓</p>
           <h1 className="mt-2 text-2xl font-bold text-success">C’est envoyé</h1>
           <p className="mt-2 text-ink-500">
@@ -449,7 +449,7 @@ export default function OnboardingPage() {
           </p>
           <a
             href="/"
-            className="mt-6 inline-block rounded-[--radius-card] bg-accent px-5 py-3 font-semibold text-white"
+            className="mt-6 inline-block rounded-card bg-accent px-5 py-3 font-semibold text-white"
           >
             Voir mon tableau de bord
           </a>

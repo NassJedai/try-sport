@@ -14,7 +14,7 @@ export function MetricCard({ label, value, loading, tone = 'default', hint }: Me
   }[tone];
 
   return (
-    <div className="rounded-[--radius-card] bg-surface p-4 shadow-sm">
+    <div className="rounded-card bg-surface p-4 shadow-sm">
       <p className="text-xs font-semibold uppercase tracking-wide text-ink-400">{label}</p>
 
       {loading ? (

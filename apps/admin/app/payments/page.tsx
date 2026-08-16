@@ -33,11 +33,11 @@ export default function AdminPaymentsPage() {
       </p>
 
       {isError ? (
-        <p role="alert" className="mt-6 rounded-[--radius-card] bg-danger-subtle p-4 text-danger">
+        <p role="alert" className="mt-6 rounded-card bg-danger-subtle p-4 text-danger">
           {error instanceof ApiError ? error.message : 'Chargement impossible.'}
         </p>
       ) : (
-        <div className="mt-6 overflow-x-auto rounded-[--radius-card] bg-surface shadow-sm">
+        <div className="mt-6 overflow-x-auto rounded-card bg-surface shadow-sm">
           <table className="w-full min-w-[760px] text-left text-sm">
             <caption className="sr-only">Derniers paiements</caption>
             <thead className="bg-surface-muted text-xs uppercase tracking-wide text-ink-400">

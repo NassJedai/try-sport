@@ -94,7 +94,7 @@ export default function OffersPage() {
         </h2>
 
         {offersQuery.isLoading ? (
-          <div className="mt-4 h-24 animate-pulse rounded-[--radius-card] bg-surface-muted" aria-hidden />
+          <div className="mt-4 h-24 animate-pulse rounded-card bg-surface-muted" aria-hidden />
         ) : offers.length === 0 ? (
           <p className="mt-4 text-ink-500">
             Aucune offre pour l’instant.{' '}
@@ -114,12 +114,12 @@ export default function OffersPage() {
               return (
                 <li
                   key={offer.id}
-                  className="flex flex-wrap items-center justify-between gap-4 rounded-[--radius-card] bg-surface p-5 shadow-sm"
+                  className="flex flex-wrap items-center justify-between gap-4 rounded-card bg-surface p-5 shadow-sm"
                 >
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="font-semibold">{offer.title}</h3>
-                      <span className={`rounded-[--radius-pill] px-2.5 py-0.5 text-xs font-semibold ${badge.tone}`}>
+                      <span className={`rounded-pill px-2.5 py-0.5 text-xs font-semibold ${badge.tone}`}>
                         {badge.label}
                       </span>
                     </div>
@@ -142,7 +142,7 @@ export default function OffersPage() {
                       onClick={() =>
                         pauseMutation.mutate({ offerId: offer.id, paused: offer.status === 'ACTIVE' })
                       }
-                      className="min-h-11 rounded-[--radius-card] border border-ink-200 px-4 text-sm font-semibold hover:bg-surface-muted disabled:opacity-50"
+                      className="min-h-11 rounded-card border border-ink-200 px-4 text-sm font-semibold hover:bg-surface-muted disabled:opacity-50"
                     >
                       {offer.status === 'ACTIVE' ? 'Mettre en pause' : 'Remettre en ligne'}
                     </button>
@@ -162,7 +162,7 @@ export default function OffersPage() {
           <p className="mt-1 text-sm text-ink-500">
             C'est ce que les clients voient en premier dans l'app. JPEG, PNG ou WebP, 8 Mo max.
           </p>
-          <div className="mt-4 space-y-6 rounded-[--radius-card] bg-surface p-5 shadow-sm">
+          <div className="mt-4 space-y-6 rounded-card bg-surface p-5 shadow-sm">
             {[...new Map(offers.map((offer) => [offer.venueId, offer.venueName])).entries()].map(
               ([venueId, venueName]) => (
                 <PhotoManager key={venueId} kind="venue" entityId={venueId} title={venueName} />
@@ -186,7 +186,7 @@ export default function OffersPage() {
         </h2>
 
         {slotsQuery.isLoading ? (
-          <div className="mt-4 h-24 animate-pulse rounded-[--radius-card] bg-surface-muted" aria-hidden />
+          <div className="mt-4 h-24 animate-pulse rounded-card bg-surface-muted" aria-hidden />
         ) : slots.length === 0 ? (
           <p className="mt-4 text-ink-500">Aucune séance planifiée sur les 7 prochains jours.</p>
         ) : (
@@ -221,7 +221,7 @@ function SlotTable({
   });
 
   return (
-    <div className="mt-4 overflow-x-auto rounded-[--radius-card] bg-surface shadow-sm">
+    <div className="mt-4 overflow-x-auto rounded-card bg-surface shadow-sm">
       <table className="w-full text-left text-sm">
         <caption className="sr-only">Créneaux des 7 prochains jours et leur remplissage</caption>
         <thead>
