@@ -127,9 +127,15 @@ export default function DashboardPage() {
           <section className="mt-6 rounded-card bg-surface p-5 shadow-sm">
             <h2 className="text-lg font-semibold">Ton entonnoir</h2>
             <p className="mt-1 text-sm text-text-secondary">
+              {/*
+                Une décimale, comme la carte « taux de conversion » au-dessus :
+                le même nombre arrondi à deux précisions différentes, à trois
+                centimètres d'écart, se lit comme deux chiffres qui se
+                contredisent.
+              */}
               {data?.trials ?? 0} essais réservés → {data?.checkIns ?? 0} venus (
-              {data ? (data.attendanceRate * 100).toFixed(0) : 0}%) → {data?.conversions ?? 0}{' '}
-              clients ({data ? (data.conversionRate * 100).toFixed(0) : 0}%)
+              {data ? (data.attendanceRate * 100).toFixed(1) : 0}%) → {data?.conversions ?? 0}{' '}
+              clients ({data ? (data.conversionRate * 100).toFixed(1) : 0}%)
             </p>
             {/*
               Quatre comparaisons, pas trois : chaque segment contre la piste,

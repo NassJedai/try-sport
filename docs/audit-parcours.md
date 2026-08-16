@@ -126,8 +126,25 @@ Pire, la même réservation ressort dans les deux journées :
 | `?date=2026-08-16` | 1 réservation — `2026-08-17T05:00:00Z` |
 | `?date=2026-08-17` | 3 réservations — dont la même `2026-08-17T05:00:00Z` |
 
-Une réservation comptée deux jours. C'est une question de fenêtrage entre UTC et
-fuseau de la salle, donc l'invariant 4 — **aucune correction silencieuse**.
+Une réservation comptée deux jours. **Cause identifiée**, dans
+`apps/api/src/modules/business/business.service.ts:208-211` :
+
+```ts
+const dayStart = query.date ? new Date(`${query.date}T00:00:00Z`) : …;
+const dayEnd = new Date(dayStart.getTime() + 36 * 3_600_000);
+```
+
+La fenêtre fait **36 heures**, pas 24. Pour le 16 août elle court jusqu'au 17 à
+12:00 UTC, et attrape donc une séance du 17 au matin. Deux journées consécutives
+se recouvrent de douze heures — d'où la même réservation dans les deux.
+
+Le commentaire juste au-dessus annonce « une journée calendaire locale au lieu,
+résolue dans le fuseau de la salle plutôt que celui du serveur ». Le code ne lit
+aucun fuseau : il part de minuit UTC et ajoute 36 heures en dur. **Le commentaire
+décrit l'intention, pas ce qui est écrit** — c'est ce qui a permis au défaut de
+passer inaperçu.
+
+Invariant 4 — **aucune correction silencieuse**.
 
 **Conséquence directe en démo :** le gérant voit un client attendu à 07:00, tape
 son code, et le serveur refuse avec `CHECKIN_OUTSIDE_WINDOW`. L'écran propose une
@@ -140,10 +157,16 @@ Conséquence du point précédent : il n'existe aucune réservation dont la fen�
 de check-in soit ouverte maintenant. Le geste central du produit — valider une
 arrivée au comptoir — n'est pas montrable en l'état.
 
-#### Le participant s'appelle « Invité » — **niveau 2**
+#### Le participant s'appelle « Invité » — **corrigé par un re-seed, pas par du code**
 
-La seule ligne du tableau porte « Invité » en guise de prénom. Un tableau de
-« Invité » ne donne pas l'impression d'un carnet de rendez-vous.
+La seule ligne du tableau porte « Invité ». Vérification faite, **le seed fournit
+déjà 25 prénoms** dans `profiles`. Le prénom affiché vient d'un `leftJoin` sur
+`profiles` : il retombe sur « Invité » quand la ligne de profil manque.
+
+Ce n'est donc pas une donnée absente du seed mais un **utilisateur créé par les
+tests d'inscription**, sans profil. Ajouter des prénoms au seed n'aurait rien
+changé. Le remède est `pnpm db:seed`, qui règle du même coup le résidu de test
+signalé plus haut.
 
 #### Le même taux affiché à deux précisions, côte à côte — **niveau 2**
 
