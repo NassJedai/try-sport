@@ -55,7 +55,7 @@ export default function LeadsPage() {
   return (
     <main className="mx-auto max-w-6xl p-6 lg:p-10">
       <h1 className="text-3xl font-bold">Prospects</h1>
-      <p className="mt-1 text-ink-500">
+      <p className="mt-1 text-text-secondary">
         Les personnes qui ont testé chez toi. Suis-les jusqu’à l’abonnement.
       </p>
 
@@ -65,7 +65,7 @@ export default function LeadsPage() {
           onClick={() => setStatus(undefined)}
           aria-pressed={status === undefined}
           className={`min-h-11 rounded-pill px-4 text-sm font-semibold ${
-            status === undefined ? 'bg-accent text-white' : 'bg-surface-muted text-ink-500'
+            status === undefined ? 'bg-accent text-on-accent' : 'bg-surface-muted text-text-secondary'
           }`}
         >
           Tous
@@ -77,7 +77,7 @@ export default function LeadsPage() {
             onClick={() => setStatus(stage.status)}
             aria-pressed={status === stage.status}
             className={`min-h-11 rounded-pill px-4 text-sm font-semibold ${
-              status === stage.status ? 'bg-accent text-white' : 'bg-surface-muted text-ink-500'
+              status === stage.status ? 'bg-accent text-on-accent' : 'bg-surface-muted text-text-secondary'
             }`}
           >
             {stage.label}
@@ -91,7 +91,7 @@ export default function LeadsPage() {
           <div className="h-20 animate-pulse rounded-card bg-surface-muted" />
         </div>
       ) : leads.length === 0 ? (
-        <p className="mt-6 rounded-card bg-surface p-6 text-ink-500">
+        <p className="mt-6 rounded-card bg-surface p-6 text-text-secondary">
           Aucun prospect pour ce filtre. Ils apparaissent ici dès qu’une personne vient à sa séance
           d’essai.
         </p>
@@ -99,7 +99,7 @@ export default function LeadsPage() {
         <div className="mt-6 overflow-x-auto rounded-card bg-surface shadow-sm">
           <table className="w-full min-w-[720px] text-left text-sm">
             <caption className="sr-only">Prospects et leur statut dans le pipeline</caption>
-            <thead className="bg-surface-muted text-xs uppercase tracking-wide text-ink-400">
+            <thead className="bg-surface-muted text-xs uppercase tracking-wide text-text-tertiary">
               <tr>
                 <th scope="col" className="px-4 py-3">Prénom</th>
                 <th scope="col" className="px-4 py-3">Activité</th>
@@ -113,8 +113,8 @@ export default function LeadsPage() {
               {leads.map((lead) => (
                 <tr key={lead.id} className="border-t border-border">
                   <td className="px-4 py-3 font-medium">{lead.firstName}</td>
-                  <td className="px-4 py-3 text-ink-500">{lead.offerTitle}</td>
-                  <td className="px-4 py-3 tabular-nums text-ink-500">
+                  <td className="px-4 py-3 text-text-secondary">{lead.offerTitle}</td>
+                  <td className="px-4 py-3 tabular-nums text-text-secondary">
                     {lead.visitedAt
                       ? new Date(lead.visitedAt).toLocaleDateString('fr-BE')
                       : '—'}
@@ -125,9 +125,9 @@ export default function LeadsPage() {
                     ) : lead.continuation === 'MAYBE' ? (
                       <span className="text-warning">Peut-être</span>
                     ) : lead.continuation === 'NO' ? (
-                      <span className="text-ink-400">Non</span>
+                      <span className="text-text-tertiary">Non</span>
                     ) : (
-                      <span className="text-ink-400">—</span>
+                      <span className="text-text-tertiary">—</span>
                     )}
                   </td>
                   <td className="px-4 py-3 tabular-nums">

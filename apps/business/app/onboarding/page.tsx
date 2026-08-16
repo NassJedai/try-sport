@@ -210,10 +210,10 @@ export default function OnboardingPage() {
     return (
       <main className="mx-auto max-w-xl p-8 text-center">
         <h1 className="text-2xl font-bold">Connecte-toi d’abord</h1>
-        <p className="mt-2 text-ink-500">L’inscription de ton établissement prend cinq minutes.</p>
+        <p className="mt-2 text-text-secondary">L’inscription de ton établissement prend cinq minutes.</p>
         <a
           href="/sign-in"
-          className="mt-6 inline-block rounded-card bg-accent px-5 py-3 font-semibold text-white"
+          className="mt-6 inline-block rounded-card bg-accent px-5 py-3 font-semibold text-on-accent"
         >
           Se connecter
         </a>
@@ -225,7 +225,7 @@ export default function OnboardingPage() {
 
   return (
     <main className="mx-auto max-w-xl p-6 lg:p-10">
-      <p className="text-xs font-semibold uppercase tracking-wide text-ink-400">
+      <p className="text-xs font-semibold uppercase tracking-wide text-text-tertiary">
         Inscription · étape {Math.min(stepIndex + 1, 4)} sur 4
       </p>
       <div className="mt-2 flex gap-1" aria-hidden>
@@ -254,7 +254,7 @@ export default function OnboardingPage() {
           }}
         >
           <h1 className="text-3xl font-bold">Ton établissement</h1>
-          <p className="text-ink-500">Le nom sous lequel les clients te connaîtront.</p>
+          <p className="text-text-secondary">Le nom sous lequel les clients te connaîtront.</p>
           <label htmlFor="bname" className="sr-only">Nom de l’établissement</label>
           <input
             id="bname"
@@ -268,7 +268,7 @@ export default function OnboardingPage() {
           <button
             type="submit"
             disabled={createBusiness.isPending || businessName.trim().length < 2}
-            className="min-h-12 rounded-card bg-accent font-semibold text-white disabled:opacity-50"
+            className="min-h-12 rounded-card bg-accent font-semibold text-on-accent disabled:opacity-50"
           >
             {createBusiness.isPending ? '…' : 'Continuer'}
           </button>
@@ -284,7 +284,7 @@ export default function OnboardingPage() {
           }}
         >
           <h1 className="text-3xl font-bold">Ton lieu</h1>
-          <p className="text-ink-500">Là où les clients viendront essayer.</p>
+          <p className="text-text-secondary">Là où les clients viendront essayer.</p>
 
           <label htmlFor="vname" className="text-sm font-semibold">Nom du lieu</label>
           <input id="vname" value={venueName} onChange={(e) => setVenueName(e.target.value)} required minLength={2} placeholder="Studio Exemple Ixelles" className="min-h-12 rounded-card border border-border bg-surface px-4" />
@@ -318,7 +318,7 @@ export default function OnboardingPage() {
                   onClick={() => toggleCategory(c.id)}
                   aria-pressed={categoryIds.includes(c.id)}
                   className={`min-h-11 rounded-pill px-4 text-sm font-semibold ${
-                    categoryIds.includes(c.id) ? 'bg-accent text-white' : 'bg-surface-muted text-ink-500'
+                    categoryIds.includes(c.id) ? 'bg-accent text-on-accent' : 'bg-surface-muted text-text-secondary'
                   }`}
                 >
                   {c.name}
@@ -330,7 +330,7 @@ export default function OnboardingPage() {
           <button
             type="submit"
             disabled={createVenue.isPending || categoryIds.length === 0 || !districtId}
-            className="min-h-12 rounded-card bg-accent font-semibold text-white disabled:opacity-50"
+            className="min-h-12 rounded-card bg-accent font-semibold text-on-accent disabled:opacity-50"
           >
             {createVenue.isPending ? '…' : 'Continuer'}
           </button>
@@ -346,7 +346,7 @@ export default function OnboardingPage() {
           }}
         >
           <h1 className="text-3xl font-bold">Ta première offre découverte</h1>
-          <p className="text-ink-500">Ce que les nouveaux clients pourront essayer.</p>
+          <p className="text-text-secondary">Ce que les nouveaux clients pourront essayer.</p>
 
           <label htmlFor="otitle" className="text-sm font-semibold">Titre</label>
           <input id="otitle" value={offerTitle} onChange={(e) => setOfferTitle(e.target.value)} required minLength={3} placeholder="Première séance découverte" className="min-h-12 rounded-card border border-border bg-surface px-4" />
@@ -388,7 +388,7 @@ export default function OnboardingPage() {
           <button
             type="submit"
             disabled={createOffer.isPending}
-            className="min-h-12 rounded-card bg-accent font-semibold text-white disabled:opacity-50"
+            className="min-h-12 rounded-card bg-accent font-semibold text-on-accent disabled:opacity-50"
           >
             {createOffer.isPending ? '…' : 'Continuer'}
           </button>
@@ -404,7 +404,7 @@ export default function OnboardingPage() {
           }}
         >
           <h1 className="text-3xl font-bold">Tes créneaux</h1>
-          <p className="text-ink-500">
+          <p className="text-text-secondary">
             Les jours et l’heure de la séance. Les créneaux des 30 prochains jours seront créés
             automatiquement.
           </p>
@@ -419,7 +419,7 @@ export default function OnboardingPage() {
                   onClick={() => toggleDay(day)}
                   aria-pressed={daysOfWeek.includes(day)}
                   className={`min-h-11 min-w-14 rounded-pill px-3 text-sm font-semibold ${
-                    daysOfWeek.includes(day) ? 'bg-accent text-white' : 'bg-surface-muted text-ink-500'
+                    daysOfWeek.includes(day) ? 'bg-accent text-on-accent' : 'bg-surface-muted text-text-secondary'
                   }`}
                 >
                   {label}
@@ -434,7 +434,7 @@ export default function OnboardingPage() {
           <button
             type="submit"
             disabled={finish.isPending || daysOfWeek.length === 0}
-            className="min-h-12 rounded-card bg-accent font-semibold text-white disabled:opacity-50"
+            className="min-h-12 rounded-card bg-accent font-semibold text-on-accent disabled:opacity-50"
           >
             {finish.isPending ? 'Envoi…' : 'Soumettre à TRY'}
           </button>
@@ -445,13 +445,13 @@ export default function OnboardingPage() {
         <div className="mt-10 rounded-card bg-success-subtle p-8 text-center">
           <p className="text-4xl" aria-hidden>✓</p>
           <h1 className="mt-2 text-2xl font-bold text-success">C’est envoyé</h1>
-          <p className="mt-2 text-ink-500">
+          <p className="mt-2 text-text-secondary">
             Ton lieu et ton offre sont en cours de vérification par l’équipe TRY. Tu recevras une
             réponse rapidement — en attendant, ton tableau de bord est prêt.
           </p>
           <a
             href="/"
-            className="mt-6 inline-block rounded-card bg-accent px-5 py-3 font-semibold text-white"
+            className="mt-6 inline-block rounded-card bg-accent px-5 py-3 font-semibold text-on-accent"
           >
             Voir mon tableau de bord
           </a>

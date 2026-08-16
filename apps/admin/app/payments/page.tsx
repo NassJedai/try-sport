@@ -25,9 +25,9 @@ export default function AdminPaymentsPage() {
 
   return (
     <main className="mx-auto max-w-6xl p-6 lg:p-10">
-      <a href="/" className="text-sm text-ink-500 underline">← Vue d’ensemble</a>
+      <a href="/" className="text-sm text-text-secondary underline">← Vue d’ensemble</a>
       <h1 className="mt-2 text-3xl font-bold">Paiements</h1>
-      <p className="mt-1 text-ink-500">
+      <p className="mt-1 text-text-secondary">
         Montants encaissés, commission TRY et remboursements. L’identifiant Stripe permet de
         retrouver la transaction dans leur dashboard.
       </p>
@@ -40,7 +40,7 @@ export default function AdminPaymentsPage() {
         <div className="mt-6 overflow-x-auto rounded-card bg-surface shadow-sm">
           <table className="w-full min-w-[760px] text-left text-sm">
             <caption className="sr-only">Derniers paiements</caption>
-            <thead className="bg-surface-muted text-xs uppercase tracking-wide text-ink-400">
+            <thead className="bg-surface-muted text-xs uppercase tracking-wide text-text-tertiary">
               <tr>
                 <th scope="col" className="px-4 py-3">Client</th>
                 <th scope="col" className="px-4 py-3">Établissement</th>
@@ -53,10 +53,10 @@ export default function AdminPaymentsPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={7} className="px-4 py-6 text-ink-400">Chargement…</td></tr>
+                <tr><td colSpan={7} className="px-4 py-6 text-text-tertiary">Chargement…</td></tr>
               ) : (data?.items.length ?? 0) === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-6 text-ink-400">
+                  <td colSpan={7} className="px-4 py-6 text-text-tertiary">
                     Aucun paiement pour l’instant — normal tant que Stripe n’est pas branché en
                     mode test.
                   </td>
@@ -69,16 +69,16 @@ export default function AdminPaymentsPage() {
                     <td className="px-4 py-3 tabular-nums font-medium">
                       {formatMoney(payment.amount, { compactWholeAmounts: true })}
                     </td>
-                    <td className="px-4 py-3 tabular-nums text-ink-500">
+                    <td className="px-4 py-3 tabular-nums text-text-secondary">
                       {formatMoney(payment.platformFee, { compactWholeAmounts: true })}
                     </td>
-                    <td className="px-4 py-3 tabular-nums text-ink-500">
+                    <td className="px-4 py-3 tabular-nums text-text-secondary">
                       {payment.refunded.amount > 0
                         ? formatMoney(payment.refunded, { compactWholeAmounts: true })
                         : '—'}
                     </td>
-                    <td className="px-4 py-3 text-xs font-semibold text-ink-500">{payment.status}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-ink-400">
+                    <td className="px-4 py-3 text-xs font-semibold text-text-secondary">{payment.status}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-text-tertiary">
                       {payment.providerPaymentIntentId ?? '—'}
                     </td>
                   </tr>

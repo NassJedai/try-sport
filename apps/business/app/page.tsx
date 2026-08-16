@@ -46,14 +46,14 @@ export default function DashboardPage() {
         <h1 className="text-2xl font-bold">
           {isSignedIn ? 'Bienvenue sur TRY Business' : 'Connecte-toi'}
         </h1>
-        <p className="mt-2 text-ink-500">
+        <p className="mt-2 text-text-secondary">
           {isSignedIn
             ? 'Inscris ton établissement : cinq minutes, et tes premières offres partent en vérification.'
             : 'Accède à ton espace professionnel pour suivre tes essais et tes conversions.'}
         </p>
         <a
           href={isSignedIn ? '/onboarding' : '/sign-in'}
-          className="mt-6 inline-block rounded-card bg-accent px-5 py-3 font-semibold text-white"
+          className="mt-6 inline-block rounded-card bg-accent px-5 py-3 font-semibold text-on-accent"
         >
           {isSignedIn ? 'Inscrire mon établissement' : 'Se connecter'}
         </a>
@@ -66,7 +66,7 @@ export default function DashboardPage() {
       <header className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold">Tableau de bord</h1>
-          <p className="mt-1 text-ink-500">Tes essais et ce qu’ils rapportent.</p>
+          <p className="mt-1 text-text-secondary">Tes essais et ce qu’ils rapportent.</p>
           <nav className="mt-3 flex gap-4 text-sm font-semibold" aria-label="Sections">
             <a href="/leads" className="text-accent-text hover:underline">
               Prospects
@@ -86,8 +86,8 @@ export default function DashboardPage() {
               aria-pressed={days === value}
               className={`min-h-11 rounded-pill px-4 text-sm font-semibold transition ${
                 days === value
-                  ? 'bg-accent text-white'
-                  : 'bg-surface-muted text-ink-500 hover:bg-ink-200'
+                  ? 'bg-accent text-on-accent'
+                  : 'bg-surface-muted text-text-secondary hover:bg-ink-200'
               }`}
             >
               {value} jours
@@ -126,7 +126,7 @@ export default function DashboardPage() {
 
           <section className="mt-6 rounded-card bg-surface p-5 shadow-sm">
             <h2 className="text-lg font-semibold">Ton entonnoir</h2>
-            <p className="mt-1 text-sm text-ink-500">
+            <p className="mt-1 text-sm text-text-secondary">
               {data?.trials ?? 0} essais réservés → {data?.checkIns ?? 0} venus (
               {data ? (data.attendanceRate * 100).toFixed(0) : 0}%) → {data?.conversions ?? 0}{' '}
               clients ({data ? (data.conversionRate * 100).toFixed(0) : 0}%)

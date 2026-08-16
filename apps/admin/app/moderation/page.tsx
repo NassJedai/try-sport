@@ -64,11 +64,11 @@ export default function ModerationPage() {
 
   return (
     <main className="mx-auto max-w-5xl p-6 lg:p-10">
-      <a href="/" className="text-sm text-ink-500 underline">
+      <a href="/" className="text-sm text-text-secondary underline">
         ← Vue d’ensemble
       </a>
       <h1 className="mt-2 text-3xl font-bold">Modération</h1>
-      <p className="mt-1 text-ink-500">
+      <p className="mt-1 text-text-secondary">
         Lieux et offres soumis par les établissements, du plus ancien au plus récent.
       </p>
 
@@ -88,7 +88,7 @@ export default function ModerationPage() {
           {queue.error instanceof ApiError ? queue.error.message : 'Chargement impossible.'}
         </p>
       ) : items.length === 0 ? (
-        <p className="mt-6 rounded-card bg-surface p-6 text-ink-500">
+        <p className="mt-6 rounded-card bg-surface p-6 text-text-secondary">
           Rien en attente. Les nouvelles soumissions apparaîtront ici.
         </p>
       ) : (
@@ -99,11 +99,11 @@ export default function ModerationPage() {
               className="flex flex-wrap items-center justify-between gap-4 rounded-card bg-surface p-5 shadow-sm"
             >
               <div>
-                <span className="mr-2 rounded-pill bg-surface-muted px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-ink-500">
+                <span className="mr-2 rounded-pill bg-surface-muted px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-text-secondary">
                   {item.kind === 'venue' ? 'Lieu' : 'Offre'}
                 </span>
                 <span className="font-semibold">{item.name}</span>
-                <p className="mt-1 text-sm text-ink-500">
+                <p className="mt-1 text-sm text-text-secondary">
                   {item.businessName}
                   {item.cityName ? ` · ${item.cityName}` : ''} · soumis le{' '}
                   {new Date(item.submittedAt).toLocaleDateString('fr-BE')}
@@ -115,7 +115,7 @@ export default function ModerationPage() {
                   type="button"
                   disabled={decide.isPending}
                   onClick={() => decide.mutate({ item, decision: 'APPROVE' })}
-                  className="min-h-11 rounded-card bg-accent px-4 font-semibold text-white disabled:opacity-50"
+                  className="min-h-11 rounded-card bg-accent px-4 font-semibold text-on-accent disabled:opacity-50"
                 >
                   Approuver
                 </button>

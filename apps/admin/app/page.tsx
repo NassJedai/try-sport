@@ -33,12 +33,12 @@ export default function AdminOverviewPage() {
     return (
       <main className="mx-auto max-w-md p-10 text-center">
         <h1 className="text-2xl font-bold">Accès restreint</h1>
-        <p className="mt-2 text-ink-500">
+        <p className="mt-2 text-text-secondary">
           Cette console est réservée à l’équipe TRY. Connecte-toi avec un compte administrateur.
         </p>
         <a
           href="/sign-in"
-          className="mt-6 inline-block rounded-card bg-accent px-5 py-3 font-semibold text-white"
+          className="mt-6 inline-block rounded-card bg-accent px-5 py-3 font-semibold text-on-accent"
         >
           Se connecter
         </a>
@@ -49,7 +49,7 @@ export default function AdminOverviewPage() {
   return (
     <main className="mx-auto max-w-6xl p-6 lg:p-10">
       <h1 className="text-3xl font-bold">Vue d’ensemble</h1>
-      <p className="mt-1 text-ink-500">Santé de la marketplace, modération et métriques.</p>
+      <p className="mt-1 text-text-secondary">Santé de la marketplace, modération et métriques.</p>
 
       <OverviewMetrics />
 
@@ -66,7 +66,7 @@ export default function AdminOverviewPage() {
             className="rounded-card bg-surface p-5 shadow-sm transition hover:shadow-md"
           >
             <h2 className="text-lg font-semibold">{section.title}</h2>
-            <p className="mt-1 text-sm text-ink-500">{section.body}</p>
+            <p className="mt-1 text-sm text-text-secondary">{section.body}</p>
           </a>
         ))}
       </nav>
@@ -99,7 +99,7 @@ function OverviewMetrics() {
     <section aria-label="Métriques" className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
       {tiles.map((tile) => (
         <div key={tile.label} className="rounded-card bg-surface p-4 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-wide text-ink-400">{tile.label}</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-text-tertiary">{tile.label}</p>
           {isLoading ? (
             <div className="mt-2 h-8 w-16 animate-pulse rounded bg-surface-muted" aria-hidden />
           ) : (

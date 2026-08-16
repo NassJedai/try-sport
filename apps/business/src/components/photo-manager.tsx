@@ -91,7 +91,7 @@ export function PhotoManager({
       {isLoading ? (
         <div className="mt-3 h-24 w-40 animate-pulse rounded-card bg-surface-muted" aria-hidden />
       ) : items.length === 0 ? (
-        <p className="mt-2 text-sm text-ink-500">
+        <p className="mt-2 text-sm text-text-secondary">
           Aucune photo. Les lieux avec photos convertissent nettement mieux — ajoute au moins ta
           salle principale.
         </p>

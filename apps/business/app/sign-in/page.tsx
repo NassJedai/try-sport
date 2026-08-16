@@ -43,7 +43,7 @@ export default function SignInPage() {
       <h1 className="text-3xl font-bold">
         {step === 'email' ? 'Espace professionnel' : 'Ton code'}
       </h1>
-      <p className="mt-2 text-ink-500">
+      <p className="mt-2 text-text-secondary">
         {step === 'email'
           ? 'On t’envoie un code à 6 chiffres. Pas de mot de passe à retenir.'
           : `Code envoyé à ${email}. Il expire dans 10 minutes.`}
@@ -102,7 +102,7 @@ export default function SignInPage() {
         <button
           type="submit"
           disabled={pending || (step === 'email' ? email.length < 5 : code.length !== 6)}
-          className="min-h-12 rounded-card bg-accent px-5 font-semibold text-white disabled:opacity-50"
+          className="min-h-12 rounded-card bg-accent px-5 font-semibold text-on-accent disabled:opacity-50"
         >
           {pending ? '…' : step === 'email' ? 'Recevoir mon code' : 'Se connecter'}
         </button>
@@ -114,14 +114,14 @@ export default function SignInPage() {
               setStep('email');
               setCode('');
             }}
-            className="min-h-12 text-sm font-semibold text-ink-500 underline"
+            className="min-h-12 text-sm font-semibold text-text-secondary underline"
           >
             Modifier l’adresse
           </button>
         )}
       </form>
 
-      <p className="mt-8 text-xs text-ink-400">
+      <p className="mt-8 text-xs text-text-tertiary">
         Pas encore partenaire ? Crée ton établissement après connexion.
       </p>
     </main>

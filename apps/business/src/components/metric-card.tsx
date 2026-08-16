@@ -15,7 +15,7 @@ export function MetricCard({ label, value, loading, tone = 'default', hint }: Me
 
   return (
     <div className="rounded-card bg-surface p-4 shadow-sm">
-      <p className="text-xs font-semibold uppercase tracking-wide text-ink-400">{label}</p>
+      <p className="text-xs font-semibold uppercase tracking-wide text-text-tertiary">{label}</p>
 
       {loading ? (
         // Reserves the exact height of the value, so nothing shifts on load.
@@ -24,7 +24,7 @@ export function MetricCard({ label, value, loading, tone = 'default', hint }: Me
         <p className={`mt-1 text-3xl font-bold tabular-nums ${toneClass}`}>{value ?? '—'}</p>
       )}
 
-      {hint && <p className="mt-1 text-xs text-ink-400">{hint}</p>}
+      {hint && <p className="mt-1 text-xs text-text-tertiary">{hint}</p>}
     </div>
   );
 }

@@ -81,14 +81,14 @@ export function TodayBookings({ businessId }: { businessId: string }) {
           <div className="h-16 animate-pulse rounded-card bg-surface-muted" />
         </div>
       ) : bookings.length === 0 ? (
-        <p className="rounded-card bg-surface p-6 text-ink-500">
+        <p className="rounded-card bg-surface p-6 text-text-secondary">
           Aucune séance prévue aujourd’hui.
         </p>
       ) : (
         <div className="overflow-hidden rounded-card bg-surface shadow-sm">
           <table className="w-full text-left text-sm">
             <caption className="sr-only">Réservations du jour avec leur statut de check-in</caption>
-            <thead className="bg-surface-muted text-xs uppercase tracking-wide text-ink-400">
+            <thead className="bg-surface-muted text-xs uppercase tracking-wide text-text-tertiary">
               <tr>
                 <th scope="col" className="px-4 py-3">Heure</th>
                 <th scope="col" className="px-4 py-3">Participant</th>
@@ -111,13 +111,13 @@ export function TodayBookings({ businessId }: { businessId: string }) {
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-ink-500">{booking.offerTitle}</td>
+                  <td className="px-4 py-3 text-text-secondary">{booking.offerTitle}</td>
                   <td className="px-4 py-3 font-mono text-xs">{booking.shortCode}</td>
                   <td className="px-4 py-3">
                     {booking.checkedInAt ? (
                       <span className="font-semibold text-success">Enregistré</span>
                     ) : (
-                      <span className="text-ink-400">En attente</span>
+                      <span className="text-text-tertiary">En attente</span>
                     )}
                   </td>
                 </tr>
@@ -174,7 +174,7 @@ export function TodayBookings({ businessId }: { businessId: string }) {
         <button
           type="submit"
           disabled={code.length < 8 || checkIn.isPending}
-          className="min-h-11 rounded-card bg-accent px-6 font-semibold text-white disabled:opacity-50"
+          className="min-h-11 rounded-card bg-accent px-6 font-semibold text-on-accent disabled:opacity-50"
         >
           {checkIn.isPending ? 'Validation…' : 'Valider le code'}
         </button>

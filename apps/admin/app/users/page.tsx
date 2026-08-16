@@ -34,7 +34,7 @@ export default function AdminUsersPage() {
 
   return (
     <main className="mx-auto max-w-5xl p-6 lg:p-10">
-      <a href="/" className="text-sm text-ink-500 underline">← Vue d’ensemble</a>
+      <a href="/" className="text-sm text-text-secondary underline">← Vue d’ensemble</a>
       <h1 className="mt-2 text-3xl font-bold">Utilisateurs</h1>
 
       <label htmlFor="search" className="sr-only">Rechercher par e-mail ou prénom</label>
@@ -54,7 +54,7 @@ export default function AdminUsersPage() {
         <div className="mt-6 overflow-x-auto rounded-card bg-surface shadow-sm">
           <table className="w-full min-w-[640px] text-left text-sm">
             <caption className="sr-only">Utilisateurs de la plateforme</caption>
-            <thead className="bg-surface-muted text-xs uppercase tracking-wide text-ink-400">
+            <thead className="bg-surface-muted text-xs uppercase tracking-wide text-text-tertiary">
               <tr>
                 <th scope="col" className="px-4 py-3">E-mail</th>
                 <th scope="col" className="px-4 py-3">Prénom</th>
@@ -65,9 +65,9 @@ export default function AdminUsersPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={5} className="px-4 py-6 text-ink-400">Chargement…</td></tr>
+                <tr><td colSpan={5} className="px-4 py-6 text-text-tertiary">Chargement…</td></tr>
               ) : (data?.items.length ?? 0) === 0 ? (
-                <tr><td colSpan={5} className="px-4 py-6 text-ink-400">Aucun résultat.</td></tr>
+                <tr><td colSpan={5} className="px-4 py-6 text-text-tertiary">Aucun résultat.</td></tr>
               ) : (
                 data?.items.map((user) => (
                   <tr key={user.id} className="border-t border-border">
@@ -80,9 +80,9 @@ export default function AdminUsersPage() {
                       )}
                     </td>
                     <td className="px-4 py-3">{user.firstName ?? '—'}</td>
-                    <td className="px-4 py-3 text-ink-500">{user.role}</td>
+                    <td className="px-4 py-3 text-text-secondary">{user.role}</td>
                     <td className="px-4 py-3 tabular-nums">{user.reservationCount}</td>
-                    <td className="px-4 py-3 tabular-nums text-ink-500">
+                    <td className="px-4 py-3 tabular-nums text-text-secondary">
                       {new Date(user.createdAt).toLocaleDateString('fr-BE')}
                     </td>
                   </tr>

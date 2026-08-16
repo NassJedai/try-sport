@@ -27,8 +27,7 @@ import { PhotoManager } from '@/components/photo-manager';
  * Les quatre teintes sémantiques sont asservies par tokens.test.ts, qui vérifie
  * chacune sur son propre lavis clair. Les deux états neutres ne le sont pas —
  * le test exclut `surfaceMuted` de ses surfaces sanctionnées — et prennent donc
- * `text-text-secondary`, qui tient 9,3:1 sans dépendre de la dérogation
- * `.text-ink-500` de globals.css, appelée à disparaître.
+ * `text-text-secondary`, qui tient 9,3:1.
  *
  * « En vérification » n'a pas de bleu à sa disposition — la palette n'en a pas —
  * et prend le lavis d'accent : c'est un état transitoire vers la mise en ligne,
@@ -89,16 +88,16 @@ export default function OffersPage() {
   return (
     <main className="mx-auto max-w-6xl p-6 lg:p-10">
       <nav className="mb-6 flex gap-4 text-sm font-semibold" aria-label="Sections">
-        <a href="/" className="text-ink-500 hover:text-ink-900">
+        <a href="/" className="text-text-secondary hover:text-ink-900">
           ← Tableau de bord
         </a>
-        <a href="/leads" className="text-ink-500 hover:text-ink-900">
+        <a href="/leads" className="text-text-secondary hover:text-ink-900">
           Prospects
         </a>
       </nav>
 
       <h1 className="text-3xl font-bold">Offres & planning</h1>
-      <p className="mt-1 text-ink-500">
+      <p className="mt-1 text-text-secondary">
         Mets une offre en pause ou annule une séance — les personnes inscrites sont prévenues et
         récupèrent leur essai.
       </p>
@@ -111,7 +110,7 @@ export default function OffersPage() {
         {offersQuery.isLoading ? (
           <div className="mt-4 h-24 animate-pulse rounded-card bg-surface-muted" aria-hidden />
         ) : offers.length === 0 ? (
-          <p className="mt-4 text-ink-500">
+          <p className="mt-4 text-text-secondary">
             Aucune offre pour l’instant.{' '}
             <a href="/onboarding" className="font-semibold text-accent-text">
               Inscris ton établissement
@@ -138,7 +137,7 @@ export default function OffersPage() {
                         {badge.label}
                       </span>
                     </div>
-                    <p className="mt-1 text-sm text-ink-500">
+                    <p className="mt-1 text-sm text-text-secondary">
                       {offer.venueName} · {offer.durationMinutes} min ·{' '}
                       {offer.priceAmount === 0
                         ? 'gratuit'
@@ -174,7 +173,7 @@ export default function OffersPage() {
           <h2 id="photos-title" className="text-xl font-bold">
             Photos
           </h2>
-          <p className="mt-1 text-sm text-ink-500">
+          <p className="mt-1 text-sm text-text-secondary">
             C'est ce que les clients voient en premier dans l'app. JPEG, PNG ou WebP, 8 Mo max.
           </p>
           <div className="mt-4 space-y-6 rounded-card bg-surface p-5 shadow-sm">
@@ -203,7 +202,7 @@ export default function OffersPage() {
         {slotsQuery.isLoading ? (
           <div className="mt-4 h-24 animate-pulse rounded-card bg-surface-muted" aria-hidden />
         ) : slots.length === 0 ? (
-          <p className="mt-4 text-ink-500">Aucune séance planifiée sur les 7 prochains jours.</p>
+          <p className="mt-4 text-text-secondary">Aucune séance planifiée sur les 7 prochains jours.</p>
         ) : (
           <SlotTable slots={slots} canMutate={canMutate} onCancel={cancelMutation} />
         )}
@@ -240,7 +239,7 @@ function SlotTable({
       <table className="w-full text-left text-sm">
         <caption className="sr-only">Créneaux des 7 prochains jours et leur remplissage</caption>
         <thead>
-          <tr className="border-b border-ink-100 text-xs uppercase tracking-wide text-ink-400">
+          <tr className="border-b border-ink-100 text-xs uppercase tracking-wide text-text-tertiary">
             <th scope="col" className="px-4 py-3">Quand</th>
             <th scope="col" className="px-4 py-3">Séance</th>
             <th scope="col" className="px-4 py-3">Remplissage</th>
@@ -259,7 +258,7 @@ function SlotTable({
                 </td>
                 <td className="px-4 py-3">
                   {slot.offerTitle}
-                  <span className="block text-xs text-ink-400">{slot.venueName}</span>
+                  <span className="block text-xs text-text-tertiary">{slot.venueName}</span>
                 </td>
                 <td className="px-4 py-3 tabular-nums">
                   {slot.reservedCount}/{slot.capacity}
@@ -303,7 +302,7 @@ function SlotTable({
                           className="w-56 rounded border border-ink-200 px-2 py-1.5"
                         />
                         {slot.reservedCount > 0 && (
-                          <span className="text-xs text-ink-500">
+                          <span className="text-xs text-text-secondary">
                             {slot.reservedCount} inscrit{slot.reservedCount > 1 ? 's' : ''} prévenu
                             {slot.reservedCount > 1 ? 's' : ''}
                           </span>
@@ -318,7 +317,7 @@ function SlotTable({
                         <button
                           type="button"
                           onClick={() => setConfirming(null)}
-                          className="text-ink-500 hover:underline"
+                          className="text-text-secondary hover:underline"
                         >
                           Garder
                         </button>
