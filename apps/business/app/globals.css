@@ -1,65 +1,98 @@
 @import 'tailwindcss';
 
 /**
- * Design tokens mirrored into CSS custom properties.
+ * Design tokens, imported rather than copied.
  *
- * The values are the same ones @try/design-tokens exposes to the mobile app —
- * shared semantics, platform-appropriate implementations. Tailwind v4 reads
- * these through @theme, so `bg-surface` and the React Native `theme.surface`
- * resolve to the same colour.
+ * tokens.css is generated from packages/design-tokens/src/index.ts at build
+ * time, so `bg-surface` here and `theme.surface` in React Native cannot drift
+ * apart — there is one set of values and no second file to keep in step.
+ * Tailwind v4 reads the @theme block out of the imported file.
  */
-@theme {
-  --color-ink-900: #0b0f14;
-  --color-ink-700: #232b36;
-  --color-ink-500: #5a6675;
-  --color-ink-400: #8593a3;
-  --color-ink-200: #d9e0e7;
-  --color-ink-100: #ecf0f4;
-  --color-ink-50: #f6f8fa;
-
-  --color-accent: #0e8a61;
-  --color-accent-pressed: #0a6e4e;
-  --color-accent-subtle: #e8f7f1;
-
-  --color-price: #c2410c;
-  --color-success: #15803d;
-  --color-success-subtle: #eaf7ef;
-  --color-warning: #a16207;
-  --color-warning-subtle: #fef7e6;
-  --color-danger: #b91c1c;
-  --color-danger-subtle: #feecec;
-
-  --color-surface: #ffffff;
-  --color-surface-muted: #ecf0f4;
-  --color-border: #d9e0e7;
-
-  --radius-card: 14px;
-  --radius-pill: 999px;
-}
+@import '@try/design-tokens/tokens.css';
 
 :root {
-  --background: #f6f8fa;
-  --foreground: #0b0f14;
   /**
-   * Pinned to light for now. The web token set is light-only, so honouring the
-   * OS dark preference produced white inputs floating on a dark page — worse
-   * than no dark mode. Remove this (and the fixed values above) when the dark
-   * token set from @try/design-tokens is mirrored into this file.
+   * Pinned to light. tokens.css now ships a full dark set, but it is keyed on
+   * `data-theme="dark"` and no screen here has been audited against dark
+   * surfaces yet; honouring the OS preference today would drop white inputs
+   * onto a dark page. Enabling it is a screen-level change, not a token one.
    */
   color-scheme: light;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--color-background);
+  color: var(--color-text-primary);
   font-family:
     -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
-/* Visible focus is not optional: this dashboard is operated with a keyboard at a
-   busy front desk. */
+/**
+ * Visible focus is not optional: this dashboard is operated with a keyboard at a
+ * busy front desk.
+ *
+ * Two concentric strokes rather than one. The accent is a light lime — a single
+ * ring drawn in it disappears on a white page (1.1:1), and a single dark ring
+ * would disappear on a lime button. The inner companion fills the outline's
+ * offset, so whichever surface the focused element sits on, one of the two
+ * strokes is above 3:1. Neither is derived from the accent, which is what keeps
+ * a future re-skin from dimming the indicator.
+ */
 :focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
+  outline: var(--focus-ring-width) solid var(--color-focus-ring);
+  outline-offset: var(--focus-ring-offset);
+  box-shadow: 0 0 0 var(--focus-ring-offset) var(--color-focus-ring-inverse);
+}
+
+/**
+ * `text-accent` resolves to the readable accent, not the fill.
+ *
+ * Tailwind derives both `bg-accent` and `text-accent` from --color-accent, but
+ * the acid lime only works as a fill: as text on a light surface it sits at
+ * 1.1:1, far below the 4.5:1 floor. Rather than leave every existing
+ * `text-accent` call site illegible, the utility is pointed at the darkened
+ * accent, which clears AA on every light surface including accent-subtle.
+ *
+ * `bg-accent` is untouched and still paints the lime.
+ */
+@layer utilities {
+  .text-accent {
+    color: var(--color-accent-text);
+  }
+
+  /**
+   * The dashboards write raw ramp steps for secondary text — `text-ink-500` on
+   * 59 elements, `text-ink-400` on 23 — rather than semantic classes. Those
+   * names encoded the old mapping, where textSecondary *was* ink500 and
+   * textTertiary *was* ink400.
+   *
+   * The warm ramp is denser at both ends and moved the semantic tiers to ink700
+   * and ink600, which left the literal classes two steps too light: ink500 fell
+   * from 5.85:1 to 3.74:1 on a card. Pointing them back at the semantic tokens
+   * restores exactly what those call sites meant. Renaming them to
+   * `text-text-secondary` / `text-text-tertiary` retires this block.
+   */
+  .text-ink-500 {
+    color: var(--color-text-secondary);
+  }
+
+  .text-ink-400 {
+    color: var(--color-text-tertiary);
+  }
+}
+
+/**
+ * Migration shim: `bg-accent text-white` predates the lime.
+ *
+ * The accent used to be a dark green, so filled buttons hardcoded `text-white`
+ * and read fine. Against the lime that pairing is 1.2:1 — an unreadable primary
+ * CTA on both dashboards. The selector matches only that exact combination, so
+ * every other `bg-accent text-*` still means what it says.
+ *
+ * The durable fix is to swap those call sites to `text-on-accent`, at which
+ * point this block can go. Until then it is what keeps the buttons legible.
+ */
+.bg-accent.text-white {
+  color: var(--color-on-accent);
 }

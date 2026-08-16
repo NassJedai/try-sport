@@ -9,21 +9,25 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    }
+    },
+    "./tokens.css": "./tokens.css"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node scripts/generate-css.mjs",
     "clean": "rm -rf dist .turbo *.tsbuildinfo",
-    "lint": "eslint src",
+    "lint": "eslint src scripts",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@try/eslint-config": "workspace:*",
     "@try/typescript-config": "workspace:*",
     "eslint": "9.39.5",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vitest": "4.1.10"
   },
   "files": [
-    "dist"
+    "dist",
+    "tokens.css"
   ]
 }

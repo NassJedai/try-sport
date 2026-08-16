@@ -1,0 +1,102 @@
+/**
+ * GENERATED FILE — DO NOT EDIT.
+ *
+ * Produced from packages/design-tokens/src/index.ts by
+ * `pnpm --filter @try/design-tokens build`. Edit the tokens there; this file is
+ * regenerated, and tokens.test.ts fails if the two drift apart.
+ */
+
+@theme {
+  --color-ink-950: #0A0907;
+  --color-ink-900: #111111;
+  --color-ink-800: #2A2A2A;
+  --color-ink-700: #3E3E3C;
+  --color-ink-600: #666663;
+  --color-ink-500: #858480;
+  --color-ink-400: #ACABA7;
+  --color-ink-300: #D3D2CD;
+  --color-ink-200: #E9E9E5;
+  --color-ink-100: #F0EFEB;
+  --color-ink-50: #F7F7F2;
+  --color-white: #FFFFFF;
+
+  --color-background: #F7F7F2;
+  --color-background-elevated: #FFFFFF;
+  --color-background-sunken: #F0EFEB;
+  --color-surface: #FFFFFF;
+  --color-surface-muted: #F0EFEB;
+  --color-text-primary: #111111;
+  --color-text-secondary: #3E3E3C;
+  --color-text-tertiary: #666663;
+  --color-text-inverse: #FFFFFF;
+  --color-border: #E9E9E5;
+  --color-border-strong: #858480;
+  --color-accent: #C6FF36;
+  --color-accent-pressed: #A4DC00;
+  --color-accent-subtle: #F5F6DC;
+  --color-on-accent: #111111;
+  --color-accent-text: #397A00;
+  --color-price: #C2410C;
+  --color-price-subtle: #FFF3EC;
+  --color-success: #15803D;
+  --color-success-subtle: #EAF7EF;
+  --color-success-surface: #22C55E;
+  --color-warning: #A16207;
+  --color-warning-subtle: #FEF7E6;
+  --color-warning-surface: #F59E0B;
+  --color-danger: #B91C1C;
+  --color-danger-subtle: #FEECEC;
+  --color-danger-surface: #EF4444;
+  --color-focus-ring: #111111;
+  --color-focus-ring-inverse: #FFFFFF;
+  --color-skeleton: #E9E9E5;
+  --color-overlay: rgba(17, 17, 17, 0.55);
+
+  --radius-card: 14px;
+  --radius-pill: 999px;
+
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+}
+
+/**
+ * Dark theme, opt-in.
+ *
+ * Deliberately keyed on an attribute rather than `prefers-color-scheme`: the
+ * dashboards have not been audited against a dark surface set, and flipping
+ * them automatically would drop white inputs onto a dark page. An app opts in
+ * by setting `data-theme="dark"` once its screens are ready.
+ */
+[data-theme='dark'] {
+  --color-background: #111111;
+  --color-background-elevated: #2A2A2A;
+  --color-background-sunken: #0A0907;
+  --color-surface: #2A2A2A;
+  --color-surface-muted: #3E3E3C;
+  --color-text-primary: #F7F7F2;
+  --color-text-secondary: #D3D2CD;
+  --color-text-tertiary: #ACABA7;
+  --color-text-inverse: #111111;
+  --color-border: #3E3E3C;
+  --color-border-strong: #ACABA7;
+  --color-accent: #C6FF36;
+  --color-accent-pressed: #A4DC00;
+  --color-accent-subtle: rgba(198, 255, 54, 0.16);
+  --color-on-accent: #111111;
+  --color-accent-text: #C6FF36;
+  --color-price: #FB923C;
+  --color-price-subtle: rgba(251, 146, 60, 0.14);
+  --color-success: #4ADE80;
+  --color-success-subtle: rgba(74, 222, 128, 0.14);
+  --color-success-surface: #22C55E;
+  --color-warning: #FBBF24;
+  --color-warning-subtle: rgba(251, 191, 36, 0.14);
+  --color-warning-surface: #F59E0B;
+  --color-danger: #DC2626;
+  --color-danger-subtle: rgba(220, 38, 38, 0.16);
+  --color-danger-surface: #EF4444;
+  --color-focus-ring: #F7F7F2;
+  --color-focus-ring-inverse: #111111;
+  --color-skeleton: #3E3E3C;
+  --color-overlay: rgba(0, 0, 0, 0.65);
+}

@@ -34,6 +34,11 @@ pnpm-debug.log*
 # Fichiers uploadés en local (photos) — jamais versionnés
 .media/
 
+# Planches de charte graphique reçues (7 Mo de PNG). Référence de travail, pas
+# une dépendance du produit : les décisions qu'on en a tirées vivent dans les
+# tokens et dans docs/adr/. Git ne sait pas oublier un binaire.
+docs/design/
+
 # Mémoire de travail des sous-agents Claude — notes propres à chaque poste,
 # régénérables, sans valeur pour l'équipe. Les définitions d'agents, elles,
 # sont versionnées (.claude/agents/).
