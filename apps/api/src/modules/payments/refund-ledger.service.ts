@@ -12,14 +12,24 @@ import { LOGGER } from '../../common/logger.module.js';
 import { ApiException } from '../../common/errors/api-exception.js';
 import { DomainEvents } from '../events/domain-events.js';
 import type { ProviderRefund } from './payment-provider.js';
+import { confirmReservationOnCapture, type ConfirmedReservationEffect } from './confirm-capture.js';
 
 const PROVIDER = 'STRIPE';
-/** payments.status pour lesquels un remboursement a du sens. */
-const REFUNDABLE_PAYMENT_STATUSES: readonly PaymentStatus[] = [
-  'SUCCEEDED',
-  'PARTIALLY_REFUNDED',
-  'REFUNDED',
-];
+/**
+ * Statuts sous lesquels notre base n'a jamais vu de preuve d'encaissement :
+ * `payment_intent.succeeded` n'a jamais ete applique (webhook perdu, ou
+ * abandonne apres MAX_WEBHOOK_ATTEMPTS — voir payment.service.ts). Un
+ * remboursement constate depuis l'un de ces statuts est la preuve que Stripe,
+ * lui, avait bien pris l'argent : c'est le statut qui se corrige, jamais le
+ * remboursement qui se refuse. `PROCESSING` n'est en pratique jamais ecrit par
+ * apps/api ; inclus par prudence si un futur provider l'introduit.
+ */
+const NEVER_CAPTURED_PAYMENT_STATUSES = new Set<PaymentStatus>([
+  'REQUIRES_PAYMENT',
+  'PROCESSING',
+  'FAILED',
+  'CANCELLED',
+]);
 /** Statuts de reservation ou un remboursement total sans annulation applicative est anormal. */
 const LIVE_RESERVATION_STATUSES = new Set(['CONFIRMED', 'CHECKED_IN']);
 
@@ -48,6 +58,34 @@ export interface RefundApplyResult {
   paymentStatus: PaymentStatus | null;
   /** provider_refund_id des lignes creees pendant cet appel. */
   insertedRefundIds: string[];
+  /**
+   * Non-null uniquement quand ce remboursement vient de reveler un encaissement
+   * dont le `payment_intent.succeeded` n'a jamais ete applique (voir
+   * `NEVER_CAPTURED_PAYMENT_STATUSES`) — c'est-a-dire quand `R > 0` a fait
+   * sortir le paiement d'un statut "jamais capture". Porte de quoi emettre
+   * `PaymentSucceeded` apres commit ; ne peut se produire que via `apply()`
+   * (chemin webhook) — `refundReservation` exige deja SUCCEEDED/
+   * PARTIALLY_REFUNDED en entree, donc n'atteint jamais cette branche.
+   */
+  capturedPayment: { paymentId: string; reservationId: string; amount: number } | null;
+  /**
+   * Non-null si, en plus de `capturedPayment`, la reservation vient d'etre
+   * confirmee comme effet de bord de cette decouverte (voir
+   * `confirmReservationOnCapture`, appele depuis `applyWithin`) : porte de
+   * quoi emettre `BookingConfirmed` apres commit, exactement comme
+   * `capturedPayment` porte de quoi emettre `PaymentSucceeded`.
+   *
+   * Reste `null` meme quand une confirmation etait due si le remboursement
+   * constate est TOTAL (`nextStatus === 'REFUNDED'`) : confirmer une
+   * reservation qu'on est en train de rembourser a 100% la ferait entrer
+   * dans `TRIAL_CONSUMING_STATUSES` de facon irreversible (REFUNDED n'est
+   * pas atteignable depuis CONFIRMED, voir reservation-state-machine.ts) —
+   * cul-de-sac decouvert en revue le 2026-08-16. Seul un remboursement
+   * PARTIEL peut declencher cette confirmation ; un remboursement total sur
+   * un encaissement jamais vu reste un signal (`logger.warn` plus bas), pas
+   * une decision automatique.
+   */
+  capturedReservation: ConfirmedReservationEffect | null;
 }
 
 const NOT_FOUND_RESULT: RefundApplyResult = {
@@ -60,6 +98,8 @@ const NOT_FOUND_RESULT: RefundApplyResult = {
   paymentAmount: 0,
   paymentStatus: null,
   insertedRefundIds: [],
+  capturedPayment: null,
+  capturedReservation: null,
 };
 
 interface UpsertRow {
@@ -134,6 +174,28 @@ export class RefundLedgerService {
           isFullRefund: result.paymentAmount > 0 && result.refundedAmount >= result.paymentAmount,
         });
       }
+
+      // Ce remboursement vient de reveler un encaissement dont le
+      // `payment_intent.succeeded` n'avait jamais ete applique : rejoue, apres
+      // commit, exactement les evenements que ce webhook aurait produits — voir
+      // confirm-capture.ts et NEVER_CAPTURED_PAYMENT_STATUSES plus bas.
+      if (result.capturedPayment) {
+        if (result.capturedReservation) {
+          this.events.emit('BookingConfirmed', {
+            reservationId: result.capturedReservation.reservationId,
+            userId: result.capturedReservation.userId,
+            businessId: result.capturedReservation.businessId,
+            venueId: result.capturedReservation.venueId,
+            offerId: result.capturedReservation.offerId,
+            isFree: false,
+          });
+        }
+        this.events.emit('PaymentSucceeded', {
+          reservationId: result.capturedPayment.reservationId,
+          paymentId: result.capturedPayment.paymentId,
+          amount: result.capturedPayment.amount,
+        });
+      }
     }
 
     return result;
@@ -143,9 +205,33 @@ export class RefundLedgerService {
   async applyWithin(tx: Transaction, input: RefundApplyInput): Promise<RefundApplyResult> {
     const now = this.clock.now();
 
-    // 1. Resolution du paiement, avec verrou. Jamais de verrou sur `reservations`
-    // ici : le chemin d'annulation verrouille reservations puis payments, et un
-    // verrou symetrique dans ce service creerait un interblocage.
+    // 1. Resolution du paiement, avec verrou — precedee d'un verrou sur
+    // `reservations`, dans le MEME ordre que le chemin d'annulation
+    // (reservations puis payments — voir booking.service.ts `cancel()` puis
+    // payment.service.ts `refundReservation()`).
+    //
+    // Ce n'est PAS optionnel, et ce n'est pas seulement pour le rejeu de
+    // `confirmReservationOnCapture` plus bas : l'etape 3 ci-dessous insere des
+    // lignes dans `refunds`, dont la colonne `reservation_id` porte une
+    // contrainte de cle etrangere vers `reservations(id)`
+    // (`refunds_reservation_id_reservations_id_fk`). Pour verifier cette
+    // contrainte, Postgres prend LUI-MEME, silencieusement, un verrou `FOR KEY
+    // SHARE` sur la ligne `reservations` referencee au moment de l'INSERT — que
+    // notre code touche explicitement cette table ou non. Verifie en confondant
+    // le bug : verrouiller `payments` avant `reservations` ici (comme avant
+    // cette revue) reproduit un interblocage ABBA reel avec le chemin
+    // d'annulation des qu'un remboursement (n'importe lequel — pas seulement un
+    // encaissement jamais vu) est traite dans sa PROPRE transaction (le chemin
+    // webhook, `apply()`) au meme moment qu'une annulation ; confirme par
+    // Postgres (`deadlock detected`, code `40P01`) dans
+    // refund-webhook.integration.test.ts avant ce correctif.
+    //
+    // `FOR KEY SHARE` (le niveau le plus faible) plutot que `FOR UPDATE` :
+    // c'est exactement le niveau que Postgres demandera de toute facon a
+    // l'etape 3, et plusieurs verrous `FOR KEY SHARE` concurrents sur la meme
+    // ligne ne se bloquent pas entre eux — deux remboursements concurrents sur
+    // le meme paiement (voir le test de serialisation plus bas) continuent donc
+    // a ne se serialiser que sur le verrou `payments`, pas plus qu'avant.
     const criterion = input.paymentId
       ? eq(schema.payments.id, input.paymentId)
       : input.providerIntentId
@@ -159,6 +245,24 @@ export class RefundLedgerService {
       return NOT_FOUND_RESULT;
     }
 
+    // Lecture non verrouillee : seul le reservation_id nous interesse a ce
+    // stade, pour savoir QUOI verrouiller avant `payments`. Si aucune ligne ne
+    // correspond, il n'y a de toute facon rien a verrouiller.
+    const [lookup] = await tx
+      .select({ reservationId: schema.payments.reservationId })
+      .from(schema.payments)
+      .where(criterion)
+      .limit(1);
+
+    if (!lookup) {
+      // Le compte Stripe peut porter d'autres flux ; l'evenement est marque
+      // traite et sa charge utile reste dans webhook_events pour inspection.
+      this.logger.warn({ input }, 'paiement inconnu pour ce remboursement');
+      return NOT_FOUND_RESULT;
+    }
+
+    await tx.execute(sql`SELECT 1 FROM reservations WHERE id = ${lookup.reservationId} FOR KEY SHARE`);
+
     const [payment] = await tx
       .select()
       .from(schema.payments)
@@ -167,8 +271,9 @@ export class RefundLedgerService {
       .limit(1);
 
     if (!payment) {
-      // Le compte Stripe peut porter d'autres flux ; l'evenement est marque
-      // traite et sa charge utile reste dans webhook_events pour inspection.
+      // Theoriquement inatteignable juste apres l'avoir trouve ci-dessus (aucun
+      // DELETE sur `payments` n'existe dans le code) ; garde defensive plutot
+      // que de supposer que ce restera toujours vrai.
       this.logger.warn({ input }, 'paiement inconnu pour ce remboursement');
       return NOT_FOUND_RESULT;
     }
@@ -178,13 +283,10 @@ export class RefundLedgerService {
       return this.toNoopResult(payment);
     }
 
-    if (!REFUNDABLE_PAYMENT_STATUSES.includes(payment.status)) {
-      this.logger.error(
-        { paymentId: payment.id, status: payment.status },
-        'remboursement recu sur un paiement dans un etat qui ne peut pas etre rembourse',
-      );
-      return this.toNoopResult(payment);
-    }
+    // Memorise AVANT toute ecriture : les statuts en jeu ici ne sont eux-memes
+    // ecrits que par payment.service.ts, jamais par ce service — le lire
+    // maintenant capture fidelement "ce qu'on savait avant ce remboursement".
+    const encaissementJamaisVu = NEVER_CAPTURED_PAYMENT_STATUSES.has(payment.status);
 
     // 2. Tri : occurredAt croissant, puis providerRefundId pour lever l'egalite.
     // L'ordre determine l'attribution ligne a ligne, jamais le total.
@@ -354,7 +456,67 @@ export class RefundLedgerService {
     // Calcule en JS plutot qu'en SQL brut : R et payment.amount sont deja des
     // entiers ici, et un CASE SQL sur des parametres non types compare parfois en
     // TEXTE ('300' >= '1000' est vrai lexicographiquement) plutot qu'en entier.
-    const nextStatus: PaymentStatus = R === 0 ? 'SUCCEEDED' : R >= payment.amount ? 'REFUNDED' : 'PARTIALLY_REFUNDED';
+    let nextStatus: PaymentStatus;
+    if (R >= payment.amount) {
+      nextStatus = 'REFUNDED';
+    } else if (R > 0) {
+      nextStatus = 'PARTIALLY_REFUNDED';
+    } else if (!encaissementJamaisVu) {
+      // La capture etait deja etablie avant cet appel (webhook de succes deja
+      // traite, ou remboursement precedent deja observe) : R === 0 signifie
+      // juste "rien de rembourse pour l'instant". No-op historique.
+      nextStatus = 'SUCCEEDED';
+    } else {
+      // R === 0 sous encaissementJamaisVu : aucune ligne SUCCEEDED n'existe pour
+      // ce paiement (R est justement la somme des lignes SUCCEEDED, calculee a
+      // l'etape 4 ci-dessus ; la contrainte `refunds_amount_positive` — CHECK
+      // amount > 0, active depuis 0000_init.sql, verifiee en base le
+      // 2026-08-16 via pg_constraint — garantit qu'une telle ligne, si elle
+      // existait, porterait forcement R > 0). Une ligne PENDING ou FAILED
+      // seule ne suffit plus a promouvoir depuis la revue du 2026-08-16 :
+      // PENDING n'est pas un encaissement confirme, et attendre son webhook de
+      // resolution (refund.updated -> SUCCEEDED) pour corriger un
+      // sur-comptage de commission contredirait l'hypothese meme qui justifie
+      // cette reconstruction — la perte de webhooks. Sans ligne SUCCEEDED, on
+      // n'en sait pas plus qu'avant cet appel : statut inchange, aucune
+      // ecriture de commission, aucun effet de bord reservation.
+      nextStatus = payment.status;
+
+      if (encaissementJamaisVu) {
+        // Observabilite : c'est l'anomalie la plus digne d'etre vue (un
+        // remboursement arrive sur un paiement dont on n'a jamais vu la
+        // capture) mais qui ne change rien a l'etat — sans ce log, elle passe
+        // completement inapercue.
+        this.logger.warn(
+          { paymentId: payment.id, previousStatus: payment.status },
+          "remboursement recu sur un paiement jamais confirme, sans ligne SUCCEEDED suffisante pour reconstruire l'encaissement — statut inchange",
+        );
+      }
+    }
+
+    // Reconstruction reelle, pas seulement "encaissementJamaisVu" : d'apres le
+    // if/else ci-dessus, quand encaissementJamaisVu est vrai, la seule autre
+    // issue possible laisse nextStatus === payment.status (R === 0, sans
+    // preuve). C'est cette comparaison, et non encaissementJamaisVu seul, qui
+    // doit gouverner le log, l'ecriture de succeeded_at/failure_code, et le
+    // rejeu des effets de bord de reservation ci-dessous : sans elle, une
+    // redelivrance qui ne change rien journalise quand meme "encaissement
+    // reconstruit" a chaque fois.
+    const captureRecovered = encaissementJamaisVu && nextStatus !== payment.status;
+
+    if (captureRecovered) {
+      // Defaut de livraison webhook, pas une anomalie silencieuse : ce
+      // remboursement est la seule preuve qu'on ait jamais eue que Stripe a
+      // pris l'argent.
+      this.logger.error(
+        {
+          paymentId: payment.id,
+          previousStatus: payment.status,
+          providerPaymentIntentId: payment.providerPaymentIntentId,
+        },
+        'encaissement reconstruit depuis un remboursement — payment_intent.succeeded jamais applique',
+      );
+    }
 
     const [updatedPayment] = await tx
       .update(schema.payments)
@@ -365,6 +527,28 @@ export class RefundLedgerService {
         providerChargeId: sql`COALESCE(${schema.payments.providerChargeId}, ${providerChargeId})`,
         status: nextStatus,
         updatedAt: now,
+        // Sans ca, un paiement reconstruit depuis FAILED resterait marque en
+        // echec tout en portant un remboursement. `succeeded_at` NE PORTE PAS
+        // la date de capture, quoi qu'en dise l'ancien commentaire ici : faute
+        // de mieux, on y met la plus ancienne date de remboursement connue
+        // (refunds.created_at porte l'occurredAt fournisseur du remboursement,
+        // pas un horodatage de capture — voir l'INSERT plus haut). C'est la
+        // meilleure approximation disponible, pas la verite ; sans consequence
+        // aujourd'hui car aucune lecture de cette colonne n'existe ailleurs.
+        // Restreint a SUCCEEDED (revue du 2026-08-16) : la preuve qui a fait
+        // promouvoir `nextStatus` ne repose que sur des lignes SUCCEEDED (voir
+        // l'etape 4) ; inclure PENDING ici pouvait faire dater cette colonne
+        // par une ligne plus ancienne mais non aboutie, dont on ne sait meme
+        // pas si elle finira par reussir.
+        ...(captureRecovered
+          ? {
+              failureCode: null,
+              succeededAt: sql`COALESCE(${schema.payments.succeededAt}, (
+                SELECT MIN(refunds.created_at) FROM refunds
+                WHERE refunds.payment_id = ${payment.id} AND refunds.status = 'SUCCEEDED'
+              ))`,
+            }
+          : {}),
       })
       .where(eq(schema.payments.id, payment.id))
       .returning();
@@ -375,10 +559,40 @@ export class RefundLedgerService {
       throw new ApiException('REFUND_FAILED', undefined, undefined, { paymentId: payment.id });
     }
 
-    // Le webhook ne deplace jamais le statut d'une reservation. Un remboursement
-    // total constate hors du chemin d'annulation applicatif (dashboard Stripe,
-    // CLI) laisse donc une reservation potentiellement encore CONFIRMED : signal
-    // pour la console admin, jamais une decision automatique.
+    // Un remboursement TOTAL ne rejoue jamais la confirmation de reservation,
+    // meme quand il vient de reveler un encaissement jamais vu : confirmer une
+    // reservation qu'on est en train de rembourser a 100% la ferait entrer dans
+    // TRIAL_CONSUMING_STATUSES sans retour possible (REFUNDED n'est pas
+    // atteignable depuis CONFIRMED — reservation-state-machine.ts:62-79,95-104),
+    // ET declencherait `BookingConfirmed` (e-mail de confirmation avec code de
+    // check-in) pour un client qu'on vient de rembourser integralement — bug
+    // trouve en revue le 2026-08-16. Seul un remboursement PARTIEL peut
+    // legitimement confirmer une reservation encore PAYMENT_PENDING : le client
+    // a bien paye une partie, sa venue reste due.
+    const shouldConfirmReservation = captureRecovered && nextStatus !== 'REFUNDED';
+
+    // Rejoue, DANS CETTE MEME transaction, les effets de bord qu'un
+    // `payment_intent.succeeded` normal aurait produits (reservation ->
+    // CONFIRMED si elle est encore PAYMENT_PENDING, trial_history assorti) —
+    // evenements diffuses par `apply()` apres commit (voir confirm-capture.ts).
+    // Safe ICI, contrairement a une premiere version de ce correctif : le
+    // verrou `reservations` (`FOR KEY SHARE`) est deja detenu par CETTE
+    // transaction depuis l'etape 1, AVANT le verrou `payments` — dans le meme
+    // ordre que le chemin d'annulation. Une transaction ne se bloque jamais
+    // elle-meme en demandant un verrou (meme plus fort, `FOR UPDATE` via cet
+    // UPDATE) sur une ligne dont elle detient deja un verrou compatible ou plus
+    // faible ; seul l'ORDRE entre deux transactions CONCURRENTES compte, et il
+    // est desormais identique des deux cotes.
+    const capturedReservation = shouldConfirmReservation
+      ? await confirmReservationOnCapture(tx, updatedPayment.reservationId, now)
+      : null;
+
+    // Le webhook ne deplace jamais le statut d'une reservation de sa propre
+    // initiative : la confirmation ci-dessus est la seule exception assumee,
+    // bornee au seul cas ou elle rejoue un `payment_intent.succeeded` qui
+    // aurait du arriver, sur un remboursement PARTIEL. Le reste (remboursement
+    // total constate hors chemin applicatif) reste un signal, jamais une
+    // decision automatique.
     if (updatedPayment.refundedAmount >= updatedPayment.amount && updatedPayment.amount > 0) {
       const [reservation] = await tx
         .select({ status: schema.reservations.status })
@@ -386,10 +600,26 @@ export class RefundLedgerService {
         .where(eq(schema.reservations.id, updatedPayment.reservationId))
         .limit(1);
 
-      if (reservation && LIVE_RESERVATION_STATUSES.has(reservation.status)) {
+      const reservationStillLive = !!reservation && LIVE_RESERVATION_STATUSES.has(reservation.status);
+      if (reservationStillLive) {
         this.logger.warn(
           { reservationId: updatedPayment.reservationId, paymentId: updatedPayment.id },
           'remboursement total constate cote fournisseur alors que la reservation est toujours active — decision humaine requise',
+        );
+      } else if (reservation && captureRecovered) {
+        // Remboursement TOTAL sur un encaissement jamais vu : la reservation
+        // reste volontairement hors de CONFIRMED (voir plus haut), donc son
+        // statut ici est typiquement encore PAYMENT_PENDING (ou deja EXPIRED si
+        // le hold a expire entre-temps) — ce n'est pas une race, c'est le
+        // comportement voulu. Signal pour permettre une verification manuelle
+        // (la place a pu, independamment, etre liberee par expiration du hold).
+        this.logger.warn(
+          {
+            reservationId: updatedPayment.reservationId,
+            paymentId: updatedPayment.id,
+            reservationStatus: reservation.status,
+          },
+          'remboursement total constate sur un paiement dont l\'encaissement n\'avait jamais ete confirme — la reservation n\'est pas confirmee automatiquement',
         );
       }
     }
@@ -404,6 +634,10 @@ export class RefundLedgerService {
       paymentAmount: updatedPayment.amount,
       paymentStatus: updatedPayment.status,
       insertedRefundIds,
+      capturedPayment: captureRecovered
+        ? { paymentId: updatedPayment.id, reservationId: updatedPayment.reservationId, amount: updatedPayment.amount }
+        : null,
+      capturedReservation,
     };
   }
 
@@ -426,6 +660,8 @@ export class RefundLedgerService {
       paymentAmount: payment.amount,
       paymentStatus: payment.status,
       insertedRefundIds: [],
+      capturedPayment: null,
+      capturedReservation: null,
     };
   }
 }

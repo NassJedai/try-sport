@@ -13,6 +13,7 @@ import { ApiException } from '../../common/errors/api-exception.js';
 import { DomainEvents } from '../events/domain-events.js';
 import { PAYMENT_PROVIDER, type PaymentProvider, type ProviderRefund } from './payment-provider.js';
 import { RefundLedgerService } from './refund-ledger.service.js';
+import { confirmReservationOnCapture } from './confirm-capture.js';
 
 /** Un webhook dont le traitement echoue N fois est abandonne au job de rejeu manuel. */
 const MAX_WEBHOOK_ATTEMPTS = 10;
@@ -105,7 +106,7 @@ export class PaymentService {
   async markSucceeded(providerIntentId: string, providerChargeId?: string | null): Promise<void> {
     const now = this.clock.now();
 
-    await this.db.transaction(async (tx) => {
+    const outcome = await this.db.transaction(async (tx) => {
       const [payment] = await tx
         .update(schema.payments)
         .set({
@@ -143,46 +144,36 @@ export class PaymentService {
           // acknowledge; logging keeps the second case visible.
           this.logger.info({ providerIntentId }, 'payment webhook ignored (already applied)');
         }
-        return;
+        return null;
       }
 
-      const [reservation] = await tx
-        .update(schema.reservations)
-        .set({
-          status: 'CONFIRMED',
-          confirmedAt: now,
-          holdExpiresAt: null,
-          updatedAt: now,
-        })
-        .where(
-          and(
-            eq(schema.reservations.id, payment.reservationId),
-            eq(schema.reservations.status, 'PAYMENT_PENDING'),
-          ),
-        )
-        .returning();
+      const confirmed = await confirmReservationOnCapture(tx, payment.reservationId, now);
+      return { payment, confirmed };
+    });
 
-      if (reservation) {
-        await tx
-          .update(schema.trialHistory)
-          .set({ status: 'CONFIRMED', updatedAt: now })
-          .where(eq(schema.trialHistory.reservationId, reservation.id));
+    if (!outcome) return;
 
-        this.events.emit('BookingConfirmed', {
-          reservationId: reservation.id,
-          userId: reservation.userId,
-          businessId: reservation.businessId,
-          venueId: reservation.venueId,
-          offerId: reservation.offerId,
-          isFree: false,
-        });
-      }
-
-      this.events.emit('PaymentSucceeded', {
-        reservationId: payment.reservationId,
-        paymentId: payment.id,
-        amount: payment.amount,
+    // Emis APRES le commit, exactement comme RefundLedgerService.apply() et
+    // BusinessService (LeadConverted) : emettre depuis l'interieur de la
+    // transaction ci-dessus exposerait un abonne (l'e-mail de confirmation) a
+    // un evenement pour un etat qu'une erreur survenue plus tard dans la meme
+    // transaction pourrait encore annuler. Rien ne peut plus le faire a partir
+    // d'ici : la transaction a deja commit.
+    if (outcome.confirmed) {
+      this.events.emit('BookingConfirmed', {
+        reservationId: outcome.confirmed.reservationId,
+        userId: outcome.confirmed.userId,
+        businessId: outcome.confirmed.businessId,
+        venueId: outcome.confirmed.venueId,
+        offerId: outcome.confirmed.offerId,
+        isFree: false,
       });
+    }
+
+    this.events.emit('PaymentSucceeded', {
+      reservationId: outcome.payment.reservationId,
+      paymentId: outcome.payment.id,
+      amount: outcome.payment.amount,
     });
   }
 
