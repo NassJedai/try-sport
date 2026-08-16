@@ -145,6 +145,68 @@ L'atomicité du chemin d'annulation n'est réellement exercée que par un seul t
 
 ---
 
+## Découvert le 16 août 2026, en corrigeant le registre de remboursements
+
+Quatre dettes mises au jour par trois passages de relecture successifs sur
+`928cbd7`. Aucune n'est introduite par ce lot ; toutes préexistaient.
+
+### 1. `markSucceeded` verrouille encore dans le mauvais ordre
+
+`apps/api/src/modules/payments/payment.service.ts:110-151` verrouille `payments`
+puis `reservations`, l'inverse du chemin d'annulation. Interblocage `40P01`
+reproduit. Déclencheur réel et fréquent : l'utilisateur annule une réservation
+`PAYMENT_PENDING` au moment où `payment_intent.succeeded` arrive.
+
+Le registre de remboursements a été aligné (`reservations` d'abord, en
+`FOR KEY SHARE`) ; ce chemin-ci ne l'est pas. Correction : faire précéder
+l'`UPDATE payments` du même `FOR KEY SHARE`. Lot dédié — le fusionner au lot
+remboursements aurait rouvert le périmètre qui a fait échouer deux tentatives.
+
+**À savoir avant d'y toucher :** `refunds.reservation_id` porte une clé étrangère
+(`0000_init.sql:601`), donc **Postgres verrouille lui-même** la ligne
+`reservations` en `FOR KEY SHARE` à chaque `INSERT INTO refunds`, sans que le
+code le demande. C'est invisible à la lecture et c'est ce qui a trompé trois
+relectures. Et dans `confirmReservationOnCapture`, l'écriture doit rester un
+`UPDATE` nu : il prend `FOR NO KEY UPDATE`, compatible avec `FOR KEY SHARE`.
+Le « durcir » en `SELECT ... FOR UPDATE` fait repartir deux remboursements
+concurrents en interblocage — vérifié.
+
+### 2. `netPlatformFee` ne filtre pas par statut
+
+`apps/api/src/modules/admin/admin-browse.service.ts:191` calcule
+`platformFeeAmount - refundedPlatformFeeAmount` sans clause de statut, là où
+l'agrégat de `moderation.service.ts:318-320` porte bien
+`WHERE status IN ('SUCCEEDED','PARTIALLY_REFUNDED','REFUNDED')`.
+
+Portée réelle vérifiée : champ **par ligne**, dans aucune somme, et aucun
+consommateur dans `apps/admin`. Un test de caractérisation existe et tombera le
+jour du correctif. Sans urgence, mais à ne pas oublier.
+
+### 3. Un worktree fantôme fausse les chiffres de test
+
+`.claude/worktrees/sad-merkle-1005af` (branche `claude/sad-merkle-1005af`) vit
+dans l'arborescence, et `vitest.integration.config.mts` n'exclut que
+`node_modules` et `dist`. **Chaque fichier d'intégration tourne donc deux fois**,
+la seconde contre le code d'une autre branche.
+
+Effet mesuré : la suite annonce 132 tests là où cette branche en compte **72**,
+et `booking-concurrency.integration.test.ts` paraît en compter 14 alors qu'il en
+a **7**. Les chiffres de preuve de plusieurs rapports de cette session étaient
+gonflés pour cette raison.
+
+Correction : ajouter `.claude/**` aux exclusions des deux configurations vitest.
+**Ne pas supprimer le worktree sans regarder** : il porte du travail non commité
+sur l'émission d'événements après commit, dont un test
+`domain-events-after-commit.integration.test.ts` qui n'existe pas sur `main`.
+
+### 4. `PaymentSucceeded` émis sur un remboursement total
+
+`refund-ledger.service.ts:637` — `capturedPayment` reste non nul même quand la
+réservation n'est délibérément pas confirmée. Inerte aujourd'hui (aucun abonné à
+`PaymentSucceeded`), mais c'est un piège posé pour le premier qui en ajoutera un.
+
+---
+
 ## Le message du commit `3f6a144` est inexact — à savoir avant de s'y fier
 
 Le commit qui aligne la commission sur 25 % se termine par :
