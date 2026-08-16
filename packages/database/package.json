@@ -20,8 +20,8 @@
     "clean": "rm -rf dist .turbo *.tsbuildinfo",
     "generate": "drizzle-kit generate",
     "lint": "eslint src",
-    "migrate": "tsx src/scripts/migrate.ts",
-    "seed": "tsx src/scripts/seed.ts",
+    "migrate": "tsx --env-file-if-exists=../../.env src/scripts/migrate.ts",
+    "seed": "tsx --env-file-if-exists=../../.env src/scripts/seed.ts",
     "studio": "drizzle-kit studio",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
