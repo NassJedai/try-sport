@@ -3,9 +3,15 @@ import { and, desc, eq, gte, lt, sql } from 'drizzle-orm';
 import {
   CANCELLATION_POLICY_DEFINITIONS,
   assessCancellation,
+  bookingPaymentStatus,
   isLiveReservationStatus,
 } from '@try/contracts';
-import type { BookingDto, BookingPageDto, ListBookingsQueryDto } from '@try/contracts';
+import type {
+  BookingDto,
+  BookingPageDto,
+  ListBookingsQueryDto,
+  PaymentStatus,
+} from '@try/contracts';
 import { formatDateInZone, formatTimeInZone, money } from '@try/utils';
 import type { Clock, CurrencyCode } from '@try/utils';
 import { schema } from '@try/database';
@@ -41,7 +47,9 @@ interface BookingRow {
   district: { name: string } | null;
   city: { name: string } | null;
   slot: { id: string; startAt: Date; endAt: Date };
-  payment: { status: string; amount: number } | null;
+  // `status` porte le vocabulaire des paiements, pas `string` : c'est cet
+  // elargissement qui laissait le DTO inventer ses propres valeurs.
+  payment: { status: PaymentStatus; amount: number } | null;
   review: { id: string } | null;
 }
 
@@ -203,16 +211,14 @@ export class BookingQueryService {
       },
       price: money(reservation.priceAmount, currency),
       payment: {
-        status:
-          reservation.priceAmount === 0
-            ? 'NOT_REQUIRED'
-            : row.payment?.status === 'SUCCEEDED'
-              ? 'SUCCEEDED'
-              : row.payment?.status === 'FAILED'
-                ? 'FAILED'
-                : reservation.status === 'PAYMENT_PENDING'
-                  ? 'REQUIRES_CONFIRMATION'
-                  : 'PROCESSING',
+        // Une seule regle, tenue dans @try/contracts : le statut du paiement est
+        // recopie tel quel. Le tri par cas qui vivait ici ecrasait REFUNDED,
+        // PARTIALLY_REFUNDED et CANCELLED en PROCESSING.
+        status: bookingPaymentStatus({
+          priceAmount: reservation.priceAmount,
+          paymentStatus: row.payment?.status ?? null,
+          reservationStatus: reservation.status,
+        }),
         amount: money(reservation.priceAmount, currency),
         // The client secret is returned at creation time only; re-issuing it on
         // every read would spread a payment credential across the app's caches.

@@ -107,6 +107,23 @@ export const PAYMENT_STATUSES = [
 ] as const;
 export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
 
+/**
+ * The payment status *of a booking*, as exposed to clients.
+ *
+ * Deliberately a superset of `PAYMENT_STATUSES`, never a second independent
+ * vocabulary: every state a payment row can be in must be representable on the
+ * booking that carries it, otherwise a refunded booking cannot be rendered at
+ * all. The single extra value covers the one case where no payment row exists —
+ * a free trial, where nothing was ever charged.
+ *
+ * `REQUIRES_CONFIRMATION`, which the booking view used to invent for itself, is
+ * `REQUIRES_PAYMENT` under another name and has been folded back into it.
+ *
+ * See `bookingPaymentStatus()` in `booking-payment-status.ts` for the mapping.
+ */
+export const BOOKING_PAYMENT_STATUSES = ['NOT_REQUIRED', ...PAYMENT_STATUSES] as const;
+export type BookingPaymentStatus = (typeof BOOKING_PAYMENT_STATUSES)[number];
+
 export const BILLING_MODELS = [
   'FREE',
   'COMMISSION',

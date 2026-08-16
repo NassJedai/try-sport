@@ -1,5 +1,9 @@
 import { z } from 'zod';
-import { CONTINUATION_ANSWERS, RESERVATION_STATUSES } from '../enums.js';
+import {
+  BOOKING_PAYMENT_STATUSES,
+  CONTINUATION_ANSWERS,
+  RESERVATION_STATUSES,
+} from '../enums.js';
 import {
   cursorPageSchema,
   cursorPaginationSchema,
@@ -29,7 +33,11 @@ export const createBookingSchema = z.object({
 export type CreateBookingDto = z.infer<typeof createBookingSchema>;
 
 export const bookingPaymentSchema = z.object({
-  status: z.enum(['NOT_REQUIRED', 'REQUIRES_CONFIRMATION', 'PROCESSING', 'SUCCEEDED', 'FAILED']),
+  /**
+   * The payment vocabulary, not a booking-specific one. A refunded payment must
+   * be representable here, otherwise the server has to lie about it.
+   */
+  status: z.enum(BOOKING_PAYMENT_STATUSES),
   amount: moneySchema,
   /**
    * Only ever a *client* secret. Server-side Stripe keys, customer ids and raw

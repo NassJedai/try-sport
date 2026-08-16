@@ -1,5 +1,6 @@
 export * from './enums.js';
 export * from './errors.js';
+export * from './booking-payment-status.js';
 export * from './reservation-state-machine.js';
 export * from './trial-eligibility.js';
 export * from './lead-pipeline.js';
