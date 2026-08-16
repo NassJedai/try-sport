@@ -83,15 +83,15 @@ function OverviewMetrics() {
 
   const tiles: { label: string; value: string | undefined }[] = [
     { label: 'Utilisateurs', value: data?.users?.toString() },
-    { label: 'Actifs 30 j', value: data?.monthly_active_users?.toString() },
-    { label: 'Lieux actifs', value: data?.active_venues?.toString() },
-    { label: 'Offres actives', value: data?.active_offers?.toString() },
+    { label: 'Actifs 30 j', value: data?.monthlyActiveUsers?.toString() },
+    { label: 'Lieux actifs', value: data?.activeVenues?.toString() },
+    { label: 'Offres actives', value: data?.activeOffers?.toString() },
     {
       label: 'En modération',
-      value: data ? String((data.venues_pending ?? 0) + (data.offers_pending ?? 0)) : undefined,
+      value: data ? String((data.venuesPending ?? 0) + (data.offersPending ?? 0)) : undefined,
     },
     { label: 'Réservations', value: data?.bookings?.toString() },
-    { label: 'Essais complétés', value: data?.completed_trials?.toString() },
+    { label: 'Essais complétés', value: data?.completedTrials?.toString() },
     { label: 'Conversions', value: data?.conversions?.toString() },
   ];
 

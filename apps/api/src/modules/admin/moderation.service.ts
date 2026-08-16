@@ -287,31 +287,38 @@ export class ModerationService {
     });
   }
 
-  /** Platform-wide numbers for the admin overview. */
+  /**
+   * Platform-wide numbers for the admin overview.
+   *
+   * Aliases are quoted camelCase deliberately. Postgres folds unquoted
+   * identifiers to lower case, so `AS monthlyActiveUsers` would arrive as
+   * `monthlyactiveusers`; the quotes are what let this payload match every
+   * other endpoint instead of leaking SQL's naming convention to clients.
+   */
   async overview(actor: AuthenticatedUser): Promise<Record<string, number>> {
     this.assertAdmin(actor);
 
     const [row] = (await this.db.execute(sql`
       SELECT
-        (SELECT COUNT(*) FROM users WHERE deleted_at IS NULL)::int AS users,
-        (SELECT COUNT(*) FROM users WHERE last_seen_at > now() - interval '30 days')::int AS monthly_active_users,
-        (SELECT COUNT(*) FROM venues WHERE status = 'ACTIVE')::int AS active_venues,
-        (SELECT COUNT(*) FROM offers WHERE status = 'ACTIVE')::int AS active_offers,
-        (SELECT COUNT(*) FROM venues WHERE status = 'PENDING_APPROVAL')::int AS venues_pending,
-        (SELECT COUNT(*) FROM offers WHERE status = 'PENDING_APPROVAL')::int AS offers_pending,
-        (SELECT COUNT(*) FROM reservations)::int AS bookings,
-        (SELECT COUNT(*) FROM reservations WHERE status = 'COMPLETED')::int AS completed_trials,
-        (SELECT COUNT(*) FROM reservations WHERE checked_in_at IS NOT NULL)::int AS check_ins,
+        (SELECT COUNT(*) FROM users WHERE deleted_at IS NULL)::int AS "users",
+        (SELECT COUNT(*) FROM users WHERE last_seen_at > now() - interval '30 days')::int AS "monthlyActiveUsers",
+        (SELECT COUNT(*) FROM venues WHERE status = 'ACTIVE')::int AS "activeVenues",
+        (SELECT COUNT(*) FROM offers WHERE status = 'ACTIVE')::int AS "activeOffers",
+        (SELECT COUNT(*) FROM venues WHERE status = 'PENDING_APPROVAL')::int AS "venuesPending",
+        (SELECT COUNT(*) FROM offers WHERE status = 'PENDING_APPROVAL')::int AS "offersPending",
+        (SELECT COUNT(*) FROM reservations)::int AS "bookings",
+        (SELECT COUNT(*) FROM reservations WHERE status = 'COMPLETED')::int AS "completedTrials",
+        (SELECT COUNT(*) FROM reservations WHERE checked_in_at IS NOT NULL)::int AS "checkIns",
         -- Net du rembourse : un remboursement partiel doit faire baisser le GMV et
         -- la commission affichee, pas seulement disparaitre d'un des deux chiffres.
         -- PARTIALLY_REFUNDED et REFUNDED restent inclus (le brut a bien ete
         -- encaisse), refunded_amount/refunded_platform_fee_amount portent la part
         -- rendue.
         (SELECT COALESCE(SUM(amount - refunded_amount), 0) FROM payments
-          WHERE status IN ('SUCCEEDED', 'PARTIALLY_REFUNDED', 'REFUNDED'))::int AS gmv_minor,
+          WHERE status IN ('SUCCEEDED', 'PARTIALLY_REFUNDED', 'REFUNDED'))::int AS "gmvMinor",
         (SELECT COALESCE(SUM(platform_fee_amount - refunded_platform_fee_amount), 0) FROM payments
-          WHERE status IN ('SUCCEEDED', 'PARTIALLY_REFUNDED', 'REFUNDED'))::int AS platform_revenue_minor,
-        (SELECT COUNT(*) FROM leads WHERE status = 'CONVERTED')::int AS conversions
+          WHERE status IN ('SUCCEEDED', 'PARTIALLY_REFUNDED', 'REFUNDED'))::int AS "platformRevenueMinor",
+        (SELECT COUNT(*) FROM leads WHERE status = 'CONVERTED')::int AS "conversions"
     `)) as unknown as Record<string, number>[];
 
     return row ?? {};
