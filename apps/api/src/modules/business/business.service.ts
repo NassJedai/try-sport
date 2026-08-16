@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, gte, lte, sql } from 'drizzle-orm';
-import { money } from '@try/utils';
-import type { Clock, CurrencyCode } from '@try/utils';
+import { and, desc, eq, gte, lt, lte, sql } from 'drizzle-orm';
+import { money, zonedTimeToUtc, zonedDayKey, DEFAULT_TIME_ZONE } from '@try/utils';
+import type { Clock, CurrencyCode, IanaTimeZone } from '@try/utils';
 import { schema } from '@try/database';
 import type { Database } from '@try/database';
 import type {
@@ -202,13 +202,32 @@ export class BusinessService {
     query: ListBusinessBookingsQueryDto,
   ): Promise<{ items: BusinessBookingDto[]; nextCursor: string | null }> {
     const now = this.clock.now();
+    const timeZone = await this.resolveVenueTimeZone(businessId, query.venueId);
 
     // A venue-local calendar day, resolved against the venue's timezone rather
-    // than the server's — "today" at the desk is what matters.
-    const dayStart = query.date
-      ? new Date(`${query.date}T00:00:00Z`)
-      : new Date(now.getTime() - 12 * 3_600_000);
-    const dayEnd = new Date(dayStart.getTime() + 36 * 3_600_000);
+    // than the server's — "today" at the desk is what matters. The window is
+    // computed from local wall-clock midnight to the *next* local midnight, so
+    // it is naturally 23h/25h across a DST transition instead of a hardcoded
+    // 24h (or, as before, a wrong 36h) span.
+    const dayKey = query.date ?? zonedDayKey(now, timeZone);
+    const [year, month, day] = dayKey.split('-').map(Number) as [number, number, number];
+
+    const dayStart = zonedTimeToUtc({ year, month, day, hour: 0, minute: 0 }, timeZone);
+    // Calendar-day arithmetic, not instant arithmetic: adding "one calendar
+    // day" to the UTC instant of local midnight would drift by the DST delta.
+    // `Date.UTC` here is only used as a plain calendar (no timezone math),
+    // then re-resolved through the venue's timezone below.
+    const nextCalendarDay = new Date(Date.UTC(year, month - 1, day) + 24 * 3_600_000);
+    const dayEnd = zonedTimeToUtc(
+      {
+        year: nextCalendarDay.getUTCFullYear(),
+        month: nextCalendarDay.getUTCMonth() + 1,
+        day: nextCalendarDay.getUTCDate(),
+        hour: 0,
+        minute: 0,
+      },
+      timeZone,
+    );
 
     const rows = await this.db
       .select({
@@ -236,7 +255,7 @@ export class BusinessService {
           query.venueId ? eq(schema.reservations.venueId, query.venueId) : undefined,
           query.status ? eq(schema.reservations.status, query.status) : undefined,
           gte(schema.reservations.slotStartAt, dayStart),
-          lte(schema.reservations.slotStartAt, dayEnd),
+          lt(schema.reservations.slotStartAt, dayEnd),
         ),
       )
       .orderBy(schema.reservations.slotStartAt)
@@ -347,7 +366,11 @@ export class BusinessService {
       const becomingConverted =
         input.dto.status === 'CONVERTED' && existing.status !== 'CONVERTED';
 
-      await tx
+      // RETURNING keeps the write and the response in the same statement, in
+      // the same transaction: no second query can observe a snapshot older
+      // than what was just written, and nothing after this point can 404 and
+      // roll the write back away from under the caller.
+      const [updated] = await tx
         .update(schema.leads)
         .set({
           status: input.dto.status ?? existing.status,
@@ -362,19 +385,19 @@ export class BusinessService {
           lostAt: input.dto.status === 'LOST' ? now : existing.lostAt,
           updatedAt: now,
         })
-        .where(eq(schema.leads.id, input.leadId));
+        .where(eq(schema.leads.id, input.leadId))
+        .returning();
+
+      // Cannot happen: we hold the row lock from the SELECT ... FOR UPDATE
+      // above, inside the same transaction. Guarded anyway so a future change
+      // to that invariant fails loudly instead of producing `undefined`.
+      if (!updated) throw ApiException.notFound('lead', input.leadId);
 
       if (becomingConverted) {
         await tx
           .update(schema.offers)
           .set({ conversionCount: sql`${schema.offers.conversionCount} + 1` })
           .where(eq(schema.offers.id, existing.offerId));
-
-        this.events.emit('LeadConverted', {
-          leadId: existing.id,
-          businessId: input.businessId,
-          revenueMinor: input.dto.attributedRevenueAmount ?? 0,
-        });
       }
 
       await this.audit.record(tx, {
@@ -386,15 +409,82 @@ export class BusinessService {
         metadata: { from: existing.status, to: input.dto.status ?? existing.status },
       });
 
-      const { items } = await this.listLeads(input.businessId, {
-        limit: 1,
-        status: undefined,
-        venueId: undefined,
-      });
-      const updated = items.find((lead) => lead.id === input.leadId);
-      if (!updated) throw ApiException.notFound('lead', input.leadId);
-      return updated;
+      // Same transaction as the write above — never a second, unguarded
+      // round trip that could see a different (or absent) row.
+      const [display] = await tx
+        .select({
+          firstName: schema.profiles.firstName,
+          email: schema.users.email,
+          offerTitle: schema.offers.title,
+          categoryName: schema.categories.name,
+        })
+        .from(schema.leads)
+        .innerJoin(schema.offers, eq(schema.offers.id, schema.leads.offerId))
+        .innerJoin(schema.categories, eq(schema.categories.id, schema.offers.categoryId))
+        .innerJoin(schema.users, eq(schema.users.id, schema.leads.userId))
+        .leftJoin(schema.profiles, eq(schema.profiles.userId, schema.leads.userId))
+        .where(eq(schema.leads.id, input.leadId));
+
+      // Emitted last, and only here: every write and read this transaction
+      // needs has already succeeded by this point, so nothing that follows can
+      // still roll it back. `DomainEvents.emit` dispatches to listeners
+      // synchronously (see domain-events.ts) — firing it any earlier, before
+      // the audit insert or this re-read, would let a later failure roll back
+      // the conversion while an event announcing it had already gone out.
+      if (becomingConverted) {
+        this.events.emit('LeadConverted', {
+          leadId: existing.id,
+          businessId: input.businessId,
+          revenueMinor: input.dto.attributedRevenueAmount ?? 0,
+        });
+      }
+
+      return {
+        id: updated.id,
+        status: updated.status,
+        firstName: display?.firstName ?? 'Invité',
+        offerTitle: display?.offerTitle ?? '',
+        categoryName: display?.categoryName ?? '',
+        visitedAt: updated.visitedAt?.toISOString() ?? null,
+        continuation: updated.continuation,
+        rating: updated.rating,
+        contactEmail: updated.contactConsentAt ? (display?.email ?? null) : null,
+        contactPhone: null,
+        notes: updated.notes,
+        convertedAt: updated.convertedAt?.toISOString() ?? null,
+        attributedRevenue:
+          updated.attributedRevenueAmount === null
+            ? null
+            : money(updated.attributedRevenueAmount, updated.currency as CurrencyCode),
+        updatedAt: updated.updatedAt.toISOString(),
+      };
     });
+  }
+
+  /**
+   * The timezone that decides what "today" means for the front desk.
+   *
+   * A specific venue always wins. Without one, we fall back to the first venue
+   * on the business — every launch venue is in Belgium today, so this never
+   * diverges in practice, but a business spanning timezones would need the
+   * caller to pass `venueId` explicitly rather than relying on this fallback.
+   */
+  private async resolveVenueTimeZone(
+    businessId: string,
+    venueId: string | undefined,
+  ): Promise<IanaTimeZone> {
+    const [venue] = await this.db
+      .select({ timeZone: schema.venues.timeZone })
+      .from(schema.venues)
+      .where(
+        and(
+          eq(schema.venues.businessId, businessId),
+          venueId ? eq(schema.venues.id, venueId) : undefined,
+        ),
+      )
+      .limit(1);
+
+    return venue?.timeZone ?? DEFAULT_TIME_ZONE;
   }
 
   private async resolveFirstVisits(
