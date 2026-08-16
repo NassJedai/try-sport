@@ -145,6 +145,36 @@ L'atomicité du chemin d'annulation n'est réellement exercée que par un seul t
 
 ---
 
+## Le message du commit `3f6a144` est inexact — à savoir avant de s'y fier
+
+Le commit qui aligne la commission sur 25 % se termine par :
+
+> « Vérifié de bout en bout après migration et re-seed, sur un paiement Stripe
+> réel : 1,75 € prélevés sur 7,00 € encaissés. »
+
+**« Prélevés » est faux au sens Stripe.** Les 1,75 € sont enregistrés en base
+(`platform_fee_amount`), pas prélevés par Stripe. Le `PaymentIntent` porte
+`application_fee_amount: null`.
+
+Cause mécanique, vérifiée : `stripe.provider.ts:49-53` ne pose
+`application_fee_amount` et `transfer_data` que si `connectedAccountId` est
+renseigné. **Aucun appelant ne le renseigne jamais** — le champ n'existe que dans
+le type (`payment-provider.ts:16`) et dans cette condition. `payment.service.ts:61`
+calcule bien la commission, puis elle est écartée avant l'appel. La colonne
+`stripeAccountId` existe en base (`catalog.ts:89`) et n'est pas utilisée.
+
+Le code est correct pour un suivi en base ; c'est la phrase qui promet plus. Rien
+à corriger dans `3f6a144` — un message de commit est immuable — mais **ne pas s'en
+servir comme preuve qu'un flux Connect fonctionne**. Brancher réellement Stripe
+Connect (transfert vers le compte de la salle) est un chantier à part entière,
+non planifié à ce jour.
+
+Conséquence commerciale directe : en démo, « vous recevez directement votre part »
+est faux tant que Connect n'est pas branché. Aujourd'hui, la plateforme encaisse
+la totalité et doit reverser elle-même.
+
+---
+
 ## À arbitrer
 
 Deux décisions qui débordent du périmètre technique.
@@ -156,19 +186,20 @@ nous, ce classement est trompeur pour l'appelant. Le corriger touche les quatre
 applications à la fois — c'est un changement de contrat public, pas un détail
 d'implémentation.
 
-### Le taux de commission par défaut est encore à 1500
+### ~~Le taux de commission par défaut est encore à 1500~~ — fait, sauf l'arbitrage
 
-La règle commerciale est de 25 % (`2500` points de base), le schéma est à `1500`.
-Décision prise de le garder pour l'instant. Le diagnostic est fait, quatre
-endroits sont concernés :
+Les quatre endroits sont traités (`3f6a144`) : défaut de colonne, valeur codée en
+dur du flux d'inscription (supprimée), seed, et la migration
+`0005_commission_default.sql`. Un test d'intégration
+(`apps/api/test/onboarding-commission-default.integration.test.ts`) échoue
+désormais si une salle naît à autre chose que 2500 — vérifié dans les deux sens,
+défaut ramené à 1500 puis restauré.
 
-1. `packages/database/src/schema/catalog.ts:79` — le défaut de colonne ;
-2. `apps/api/src/modules/business/onboarding.service.ts:63` — **valeur codée en
-   dur** dans le flux d'inscription des salles : corriger le schéma seul ne
-   suffirait pas ;
-3. `packages/database/src/scripts/seed.ts:179` — le seed de développement ;
-4. une nouvelle migration pour le `ALTER COLUMN ... SET DEFAULT 2500`.
+**Ce qui reste à arbitrer, et qui est une vraie décision commerciale :** un
+changement de défaut ne touche que les futures lignes. Les salles existantes sont
+toutes à 1500 par héritage, **aucune ne l'a négocié** — mais rien dans le schéma
+ne distingue une salle laissée au défaut d'une salle à qui l'on aurait consenti
+15 %. Un `UPDATE` global romprait donc des accords qu'on ne sait pas relire.
 
-Un changement de défaut ne touche que les futures lignes. Les salles existantes
-devront faire l'objet d'une décision à part — aujourd'hui elles sont toutes à
-1500 par héritage du défaut, aucune ne l'a négocié.
+À trancher : les remonter à 2500 salle par salle, ou les laisser à 15 % comme
+tarif historique. Ce n'est pas une tâche de code.

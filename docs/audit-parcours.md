@@ -9,6 +9,22 @@ signature identique à celui du `.env`, signatures acceptées).
 Ton de l'audit : sévère par consigne. Ce qui marche est mentionné brièvement ;
 l'essentiel du document porte sur ce qui gêne une démo.
 
+> **Révisé le 16 août 2026, après contre-relecture du code.**
+>
+> La première rédaction de cet audit contenait des affirmations fausses. Elles
+> sont corrigées en place, dans des encadrés comme celui-ci, plutôt que
+> discrètement réécrites — un audit qui se corrige sans le dire ne vaut pas mieux
+> que celui qui se trompe.
+>
+> Trois natures d'erreur ont été trouvées : un **diagnostic faux** présenté comme
+> une question métier (le statut de paiement), une **gravité sous-évaluée** (le
+> `PATCH` d'un prospect, requalifié en perte de données), et deux constats
+> devenus **périmés** depuis les correctifs.
+>
+> Ce qui a été vérifié et **tient** : la règle d'essai, l'invariant de capacité,
+> la résolution serveur du prix, l'idempotence, le fenêtrage de journée faux, et
+> l'absence de prélèvement Stripe.
+
 **Tri appliqué**
 
 | Niveau | Règle | Traitement |
@@ -58,31 +74,48 @@ se charge** et le catalogue devient une liste de titres sur fond gris.
 C'est une valeur de configuration, réglable en une ligne, mais elle décide de
 l'allure de toute la démo.
 
-#### Le paiement reste `PROCESSING` après remboursement — **question métier**
+#### Le paiement reste `PROCESSING` après remboursement — **défaut, pas question**
 
 Après une annulation remboursée (Stripe confirme, les webhooks `refund.updated`
 et `charge.refund.updated` sont acquittés en 200), la réservation passe bien à
 `CANCELLED_USER`, mais l'objet paiement reste à `status: PROCESSING`.
 
-Attendu naïvement : `REFUNDED`. Mais c'est un état de paiement, donc hors de
-toute correction silencieuse. Deux lectures possibles :
+> **Rectifié après relecture.** Ce point était présenté ici comme « une question
+> métier à trancher », avec l'hypothèse que `REFUNDED` manquait peut-être au
+> vocabulaire. C'était faux, et les deux lectures proposées passaient à côté de la
+> cause.
 
-- soit `PROCESSING` reflète fidèlement que Stripe n'a pas encore *réglé* le
-  remboursement (il est émis, pas encaissé côté client) — auquel cas c'est juste,
-  et c'est l'affichage qui devra le traduire pour un gérant ;
-- soit la projection n'est pas mise à jour par le webhook de remboursement.
+`REFUNDED` et `PARTIALLY_REFUNDED` existent bien dans `PAYMENT_STATUSES`
+(`packages/contracts/src/enums.ts:99-107`) et sont correctement calculés selon le
+cumul remboursé (`refund-ledger.service.ts:357`). Rien ne manque au vocabulaire.
 
-À trancher avant la démo : un gérant qui voit « en cours » sur un remboursement
-qu'il vient d'accorder va poser la question.
+La cause réelle est un **état absorbant** :
+`apps/api/src/modules/payments/refund-ledger.service.ts:19-23` restreint les
+remboursements aux paiements déjà en `SUCCEEDED`, `PARTIALLY_REFUNDED` ou
+`REFUNDED`. `PROCESSING` en est exclu. Un paiement resté en `PROCESSING` — parce
+que le webhook `payment_intent.succeeded` n'a jamais été reçu, cas nominal si
+l'endpoint n'est pas abonné (voir `TODO.md`) — ne repassera donc **jamais** à
+`REFUNDED`, quand bien même Stripe confirme le remboursement.
 
-#### La commission n'apparaît pas côté Stripe — **question métier**
+Ce n'est pas un affichage à traduire pour le gérant : c'est un statut qui ne
+bougera plus jamais.
+
+#### La commission n'apparaît pas côté Stripe — **exact, et plus net qu'écrit ici**
 
 Le `PaymentIntent` confirmé porte `application_fee_amount: null`. La commission
 de 25 % est donc suivie côté base et non prélevée par Stripe Connect.
 
-Ce n'est pas nécessairement un défaut — `CLAUDE.md` dit que le taux est stocké
-par salle — mais ça détermine ce qu'on peut promettre en démo : « vous recevez
-directement votre part » n'est vrai qu'avec un transfert Connect. À confirmer.
+> **Confirmé après relecture**, et la cause est mécanique, pas contextuelle.
+> `stripe.provider.ts:49-53` ne pose `application_fee_amount` et `transfer_data`
+> que si `connectedAccountId` est renseigné. Or **aucun appelant ne le renseigne
+> jamais** : le champ n'existe que dans le type (`payment-provider.ts:16`) et dans
+> cette condition. La commission est calculée (`payment.service.ts:61`) puis
+> écartée avant l'appel. La colonne `stripeAccountId` existe en base
+> (`catalog.ts:89`) et n'est pas utilisée.
+
+Conséquence pour la démo : « vous recevez directement votre part » n'est vrai
+qu'avec un transfert Connect, qui n'est pas branché. La commission est un montant
+enregistré, pas un montant prélevé.
 
 ### Résidu de test dans les données
 
@@ -173,14 +206,30 @@ signalé plus haut.
 La carte indique **9.6 %**, l'entonnoir juste en dessous **10 %**. Même chiffre,
 deux arrondis, à trois centimètres l'un de l'autre.
 
-#### Le `PATCH` d'un prospect renvoie l'état d'avant — **question, machine à états**
+#### Le `PATCH` d'un prospect peut PERDRE la modification — **critique**
 
 Passer un prospect à `CONVERTED` fonctionne : relu ensuite, il est bien
-`CONVERTED`. Mais la réponse du `PATCH` contient encore `status: "NEW"`. Un
-client qui fait confiance à la réponse affiche le mauvais statut jusqu'au
-rechargement. Le dashboard s'en sort parce qu'il invalide ses requêtes.
+`CONVERTED`. Mais la réponse du `PATCH` contient encore `status: "NEW"`.
 
-Statut de pipeline = machine à états, donc signalé et non corrigé.
+> **Requalifié après relecture.** Ce point était classé « question, machine à
+> états », comme un simple affichage périmé. C'est en réalité un chemin de
+> **perte de données**, et le symptôme visible en était la partie inoffensive.
+
+`business.service.ts:391-396` relit le prospect via `listLeads`, qui interroge
+`this.db` — le **pool, pas la transaction** (`:274`). D'où la réponse qui porte
+l'état d'avant : elle ne voit pas l'`UPDATE` non encore commité.
+
+Le vrai danger est le tri : `listLeads` ordonne par `desc(updatedAt)` avec
+`limit: 1` (`:294`). Dès qu'un **autre** prospect de la même salle a été modifié
+plus récemment, `items.find()` ne trouve rien, un `notFound` est levé **à
+l'intérieur de la transaction**, celle-ci part en rollback — et la modification
+du gérant est perdue, avec un 404 en réponse alors que le prospect existe. Le
+compteur `conversionCount` et l'audit trail partent avec.
+
+Seul l'événement `LeadConverted`, déjà émis (`:373`), survit au rollback : un
+événement de conversion pour une conversion qui n'a pas eu lieu.
+
+Dette pré-existante, non introduite par les commits relus.
 
 ---
 
@@ -197,21 +246,33 @@ un compte non-admin ne charge pas les données, il ne voit pas un écran vide.
 
 ### Ce qui gêne
 
-#### La commission affichée est à 15 %, pas 25 % — **question commerciale, priorité démo**
+#### ~~La commission affichée est à 15 %, pas 25 %~~ — **corrigé depuis**
 
-La vue d'ensemble donne `gmv_minor: 1300` et `platform_revenue_minor: 195`, soit
-exactement **15 %**.
+Constat d'origine : la vue d'ensemble donnait `gmv_minor: 1300` et
+`platform_revenue_minor: 195`, soit exactement 15 %.
 
-`CLAUDE.md` le dit déjà dans « À trancher » : le taux par défaut en base est resté
-à `1500` alors que la règle commerciale est de 25 %. Ce n'est donc pas une
-découverte, mais c'est le pire endroit où le laisser traîner : **un gérant à qui
-on présente ce tableau lit le taux qu'on lui prendra.**
+> **Corrigé** par `3f6a144`. La migration `0005_commission_default.sql` porte le
+> défaut de colonne à `2500`, et la valeur codée en dur dans le flux
+> d'inscription a été supprimée. Un test d'intégration
+> (`onboarding-commission-default.integration.test.ts`) échoue désormais si une
+> salle naît à autre chose que 2500 — vérifié dans les deux sens.
+>
+> Réserve qui subsiste : seules les **futures** salles sont concernées. Une base
+> déjà peuplée garde ses salles à 15 % jusqu'à décision commerciale, salle par
+> salle. En développement, `pnpm db:seed` les recrée au bon taux.
 
-#### Nommage incohérent avec le reste de l'API — **niveau 2**
+#### ~~Nommage incohérent avec le reste de l'API~~ — **corrigé depuis**
 
-La vue d'ensemble renvoie du `snake_case` (`monthly_active_users`, `gmv_minor`,
-`platform_revenue_minor`) là où tout le reste de l'API est en `camelCase`
-(`slotStartAt`, `attendeeFirstName`, `remainingCapacity`).
+Constat d'origine : la vue d'ensemble renvoyait du `snake_case`
+(`monthly_active_users`, `gmv_minor`, `platform_revenue_minor`) là où le reste de
+l'API est en `camelCase`.
+
+> **Corrigé** par `1da4109`. Les alias sont désormais en `camelCase` et quotés,
+> ce qui est la bonne réponse au repliement de casse de Postgres.
+>
+> Réserve : la réponse reste typée `Record<string, number>` des deux côtés
+> (`moderation.service.ts:296`, `apps/admin/app/page.tsx:81`). Aucun schéma de
+> contrat, aucun test — le prochain renommage passera silencieusement.
 
 ---
 
