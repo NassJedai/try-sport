@@ -43,15 +43,15 @@ export default function AdminUsersPage() {
         value={search}
         onChange={(event) => setSearch(event.target.value)}
         placeholder="Rechercher par e-mail ou prénom…"
-        className="mt-4 min-h-12 w-full rounded-[--radius-card] border border-border bg-surface px-4"
+        className="mt-4 min-h-12 w-full rounded-card border border-border bg-surface px-4"
       />
 
       {isError ? (
-        <p role="alert" className="mt-6 rounded-[--radius-card] bg-danger-subtle p-4 text-danger">
+        <p role="alert" className="mt-6 rounded-card bg-danger-subtle p-4 text-danger">
           {error instanceof ApiError ? error.message : 'Chargement impossible.'}
         </p>
       ) : (
-        <div className="mt-6 overflow-x-auto rounded-[--radius-card] bg-surface shadow-sm">
+        <div className="mt-6 overflow-x-auto rounded-card bg-surface shadow-sm">
           <table className="w-full min-w-[640px] text-left text-sm">
             <caption className="sr-only">Utilisateurs de la plateforme</caption>
             <thead className="bg-surface-muted text-xs uppercase tracking-wide text-ink-400">
@@ -74,7 +74,7 @@ export default function AdminUsersPage() {
                     <td className="px-4 py-3 font-medium">
                       {user.email}
                       {user.isSuspended && (
-                        <span className="ml-2 rounded-[--radius-pill] bg-danger-subtle px-2 py-0.5 text-xs font-semibold text-danger">
+                        <span className="ml-2 rounded-pill bg-danger-subtle px-2 py-0.5 text-xs font-semibold text-danger">
                           suspendu
                         </span>
                       )}

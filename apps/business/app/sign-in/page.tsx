@@ -70,7 +70,7 @@ export default function SignInPage() {
               placeholder="contact@tonclub.be"
               autoComplete="email"
               required
-              className="min-h-12 rounded-[--radius-card] border border-border bg-surface px-4"
+              className="min-h-12 rounded-card border border-border bg-surface px-4"
             />
           </>
         ) : (
@@ -88,13 +88,13 @@ export default function SignInPage() {
               placeholder="123456"
               autoComplete="one-time-code"
               required
-              className="min-h-12 rounded-[--radius-card] border border-border bg-surface px-4 text-center text-2xl font-bold tracking-[0.4em]"
+              className="min-h-12 rounded-card border border-border bg-surface px-4 text-center text-2xl font-bold tracking-[0.4em]"
             />
           </>
         )}
 
         {error && (
-          <p role="alert" className="rounded-[--radius-card] bg-danger-subtle p-3 text-sm text-danger">
+          <p role="alert" className="rounded-card bg-danger-subtle p-3 text-sm text-danger">
             {error instanceof ApiError ? error.message : 'Une erreur est survenue.'}
           </p>
         )}
@@ -102,7 +102,7 @@ export default function SignInPage() {
         <button
           type="submit"
           disabled={pending || (step === 'email' ? email.length < 5 : code.length !== 6)}
-          className="min-h-12 rounded-[--radius-card] bg-accent px-5 font-semibold text-white disabled:opacity-50"
+          className="min-h-12 rounded-card bg-accent px-5 font-semibold text-white disabled:opacity-50"
         >
           {pending ? '…' : step === 'email' ? 'Recevoir mon code' : 'Se connecter'}
         </button>

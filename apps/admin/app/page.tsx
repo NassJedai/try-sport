@@ -38,7 +38,7 @@ export default function AdminOverviewPage() {
         </p>
         <a
           href="/sign-in"
-          className="mt-6 inline-block rounded-[--radius-card] bg-accent px-5 py-3 font-semibold text-white"
+          className="mt-6 inline-block rounded-card bg-accent px-5 py-3 font-semibold text-white"
         >
           Se connecter
         </a>
@@ -63,7 +63,7 @@ export default function AdminOverviewPage() {
           <a
             key={section.href}
             href={section.href}
-            className="rounded-[--radius-card] bg-surface p-5 shadow-sm transition hover:shadow-md"
+            className="rounded-card bg-surface p-5 shadow-sm transition hover:shadow-md"
           >
             <h2 className="text-lg font-semibold">{section.title}</h2>
             <p className="mt-1 text-sm text-ink-500">{section.body}</p>
@@ -98,7 +98,7 @@ function OverviewMetrics() {
   return (
     <section aria-label="Métriques" className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
       {tiles.map((tile) => (
-        <div key={tile.label} className="rounded-[--radius-card] bg-surface p-4 shadow-sm">
+        <div key={tile.label} className="rounded-card bg-surface p-4 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-wide text-ink-400">{tile.label}</p>
           {isLoading ? (
             <div className="mt-2 h-8 w-16 animate-pulse rounded bg-surface-muted" aria-hidden />

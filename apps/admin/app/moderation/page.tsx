@@ -73,22 +73,22 @@ export default function ModerationPage() {
       </p>
 
       {feedback && (
-        <p role="status" className="mt-4 rounded-[--radius-card] bg-accent-subtle p-3 text-sm font-medium">
+        <p role="status" className="mt-4 rounded-card bg-accent-subtle p-3 text-sm font-medium">
           {feedback}
         </p>
       )}
 
       {queue.isLoading ? (
         <div className="mt-6 space-y-2" aria-hidden>
-          <div className="h-20 animate-pulse rounded-[--radius-card] bg-surface-muted" />
-          <div className="h-20 animate-pulse rounded-[--radius-card] bg-surface-muted" />
+          <div className="h-20 animate-pulse rounded-card bg-surface-muted" />
+          <div className="h-20 animate-pulse rounded-card bg-surface-muted" />
         </div>
       ) : queue.isError ? (
-        <p role="alert" className="mt-6 rounded-[--radius-card] bg-danger-subtle p-4 text-danger">
+        <p role="alert" className="mt-6 rounded-card bg-danger-subtle p-4 text-danger">
           {queue.error instanceof ApiError ? queue.error.message : 'Chargement impossible.'}
         </p>
       ) : items.length === 0 ? (
-        <p className="mt-6 rounded-[--radius-card] bg-surface p-6 text-ink-500">
+        <p className="mt-6 rounded-card bg-surface p-6 text-ink-500">
           Rien en attente. Les nouvelles soumissions apparaîtront ici.
         </p>
       ) : (
@@ -96,10 +96,10 @@ export default function ModerationPage() {
           {items.map((item) => (
             <li
               key={`${item.kind}-${item.id}`}
-              className="flex flex-wrap items-center justify-between gap-4 rounded-[--radius-card] bg-surface p-5 shadow-sm"
+              className="flex flex-wrap items-center justify-between gap-4 rounded-card bg-surface p-5 shadow-sm"
             >
               <div>
-                <span className="mr-2 rounded-[--radius-pill] bg-surface-muted px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-ink-500">
+                <span className="mr-2 rounded-pill bg-surface-muted px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-ink-500">
                   {item.kind === 'venue' ? 'Lieu' : 'Offre'}
                 </span>
                 <span className="font-semibold">{item.name}</span>
@@ -115,7 +115,7 @@ export default function ModerationPage() {
                   type="button"
                   disabled={decide.isPending}
                   onClick={() => decide.mutate({ item, decision: 'APPROVE' })}
-                  className="min-h-11 rounded-[--radius-card] bg-accent px-4 font-semibold text-white disabled:opacity-50"
+                  className="min-h-11 rounded-card bg-accent px-4 font-semibold text-white disabled:opacity-50"
                 >
                   Approuver
                 </button>
@@ -123,7 +123,7 @@ export default function ModerationPage() {
                   type="button"
                   disabled={decide.isPending}
                   onClick={() => handleReject(item)}
-                  className="min-h-11 rounded-[--radius-card] border border-border px-4 font-semibold text-danger disabled:opacity-50"
+                  className="min-h-11 rounded-card border border-border px-4 font-semibold text-danger disabled:opacity-50"
                 >
                   Refuser
                 </button>
