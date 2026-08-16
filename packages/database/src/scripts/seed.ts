@@ -1,8 +1,9 @@
 import { sql } from 'drizzle-orm';
-import { DEFAULT_TIME_ZONE, addMinutes, zonedTimeToUtc } from '@try/utils';
+import { DEFAULT_TIME_ZONE, addMinutes, generateCheckInCode, zonedTimeToUtc } from '@try/utils';
 import { createDatabase } from '../client.js';
 import * as schema from '../schema/index.js';
 import { BRUSSELS_DISTRICTS, BUSINESSES, CATEGORIES, OFFERS, VENUES } from './seed-data.js';
+import { attachMissingMedia, defaultMediaDir } from './seed-media.js';
 
 /**
  * Seeds a development or staging database with a realistic Brussels dataset.
@@ -349,6 +350,67 @@ async function main(): Promise<void> {
   }
   console.log(`  ${slotValues.length} slots created`);
 
+  console.log('Seeding a demonstrable check-in…');
+  /**
+   * The one reservation the "check someone in at the door" demo depends on.
+   * It has to sit on `business@try.local`'s own venue (Move Collective,
+   * Studio Move Ixelles — see `businessMembers` above) so the staff account
+   * used in the demo can see and check it in, and its slot has to fall inside
+   * the check-in window at the moment the seed runs: [start - 60min, end +
+   * 120min], see `CHECKIN_OPENS_MINUTES_BEFORE`/`CHECKIN_CLOSES_MINUTES_AFTER`
+   * in `apps/api/src/modules/bookings/booking.service.ts`. Anchored to `now`
+   * (already captured above for the slot horizon), not a hardcoded date, so a
+   * `pnpm db:seed` produces an immediately demoable booking any day it runs.
+   * Starting 20 minutes from now — inside the window without needing to fake
+   * a session already in progress — reads naturally as "client arrived a bit
+   * early". The consumer is the demo user (`user@try.local`) rather than a
+   * random seeded member, so the desk shows Camille's name, not "Invité".
+   */
+  const demoOffer = offerByTitle.get('Pilates Reformer — Première séance');
+  const demoVenue = venueBySlug.get('studio-move-ixelles');
+  if (!demoOffer || !demoVenue) throw new Error('Demo check-in offer/venue missing');
+
+  const demoSlotStartAt = new Date(now.getTime() + 20 * 60_000);
+  const demoSlotEndAt = addMinutes(demoSlotStartAt, demoOffer.durationMinutes);
+
+  const [demoSlot] = await db
+    .insert(schema.slots)
+    .values({
+      offerId: demoOffer.id,
+      venueId: demoVenue.id,
+      startAt: demoSlotStartAt,
+      endAt: demoSlotEndAt,
+      capacity: demoOffer.capacity,
+      reservedCount: 1,
+      status: 'OPEN',
+    })
+    .returning();
+  if (!demoSlot) throw new Error('Failed to insert demo slot');
+
+  const [demoReservation] = await db
+    .insert(schema.reservations)
+    .values({
+      userId: demoUser.id,
+      slotId: demoSlot.id,
+      offerId: demoOffer.id,
+      venueId: demoVenue.id,
+      businessId: demoVenue.businessId,
+      status: 'CONFIRMED',
+      priceAmount: demoOffer.priceAmount,
+      currency: 'EUR',
+      trialRule: demoOffer.trialRule,
+      slotStartAt: demoSlotStartAt,
+      slotEndAt: demoSlotEndAt,
+      checkInCode: generateCheckInCode(),
+      confirmedAt: now,
+    })
+    .returning();
+  if (!demoReservation) throw new Error('Failed to insert demo reservation');
+
+  console.log(
+    `  demo reservation ${demoReservation.id} — code ${demoReservation.checkInCode}, slot at ${demoSlotStartAt.toISOString()} (check-in window open now)`,
+  );
+
   console.log('Seeding reviews and past bookings…');
   const pastReservations: (typeof schema.reservations.$inferInsert)[] = [];
   const consumers = userRows.filter((user) => user.role === 'USER');
@@ -519,15 +581,33 @@ async function main(): Promise<void> {
     .select({ count: sql<number>`count(*)::int` })
     .from(schema.slots);
 
+  /**
+   * The TRUNCATE above empties offer_images and venue_images along with
+   * everything else, but this seed has no photo of its own to put back — that
+   * content lives in seed-media.ts. Generating it here, on the connection
+   * already open, is what makes a bare `pnpm db:seed` leave a catalogue with
+   * pictures instead of a wall of grey placeholders. Idempotent: it only fills
+   * offers/venues that have no image, so it never overwrites a manager's real
+   * upload when run again later against a non-truncated database.
+   */
+  console.log('Generating placeholder media…');
+  const media = await attachMissingMedia(db, defaultMediaDir());
+  console.log(`  ${media.offers} offer images, ${media.venues} venue images`);
+
   console.log('\nSeed complete:');
   console.log(`  ${districtRows.length} districts, ${categoryRows.length} categories`);
   console.log(`  ${businessRows.length} businesses, ${venueRows.length} venues`);
   console.log(`  ${offerRows.length} offers, ${slotCount} slots`);
   console.log(`  ${insertedReservations.length} historic bookings with reviews`);
+  console.log(`  ${media.offers} offer images, ${media.venues} venue images`);
   console.log('\nDemo accounts (dev/staging only, OTP is printed by the API in dev):');
   console.log(`  consumer: ${DEMO_ACCOUNTS.user}`);
   console.log(`  business: ${DEMO_ACCOUNTS.business} (OWNER of Move Collective)`);
   console.log(`  admin:    ${DEMO_ACCOUNTS.admin}`);
+  console.log(
+    `\nDemo check-in: reservation ${demoReservation.id}, code ${demoReservation.checkInCode}, ` +
+      `slot ${demoSlotStartAt.toISOString()} — window is open right now.`,
+  );
 
   await close();
 }

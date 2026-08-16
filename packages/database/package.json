@@ -22,6 +22,7 @@
     "lint": "eslint src",
     "migrate": "tsx --env-file-if-exists=../../.env src/scripts/migrate.ts",
     "seed": "tsx --env-file-if-exists=../../.env src/scripts/seed.ts",
+    "seed:media": "tsx --env-file-if-exists=../../.env src/scripts/seed-media.ts",
     "studio": "drizzle-kit studio",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
