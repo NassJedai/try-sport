@@ -176,7 +176,7 @@ async function main(): Promise<void> {
         countryCode: 'BE',
         status: 'ACTIVE' as const,
         billingModel: 'COMMISSION' as const,
-        commissionBasisPoints: 1500,
+        commissionBasisPoints: 2500,
         approvedAt: new Date(),
       })),
     )

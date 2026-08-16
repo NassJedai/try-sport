@@ -74,9 +74,14 @@ export const businesses = pgTable(
      * How TRY earns from this business. Stored per business so the commercial
      * model can vary by contract without a schema change; the commission rate is
      * in basis points so 12.5% is exact.
+     *
+     * 2500 is the standard rate, not a constant: this default is what a business
+     * gets when nothing was negotiated, and negotiating is the point of the
+     * column. Nothing outside this line may hardcode a rate — every caller reads
+     * it from the row.
      */
     billingModel: billingModelEnum('billing_model').notNull().default('COMMISSION'),
-    commissionBasisPoints: integer('commission_basis_points').notNull().default(1500),
+    commissionBasisPoints: integer('commission_basis_points').notNull().default(2500),
     perAttendeeFeeAmount: integer('per_attendee_fee_amount').notNull().default(0),
     currency: currencyEnum('currency').notNull().default('EUR'),
 

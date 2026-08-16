@@ -58,9 +58,13 @@ export class OnboardingService {
           contactPhone: input.dto.contactPhone ?? null,
           countryCode: input.dto.countryCode,
           // Commercial terms are platform-set, never client-supplied.
+          //
+          // The rate is deliberately absent: it comes from the column default, so
+          // there is exactly one place in the codebase that states what a new
+          // business pays. Repeating it here is how the two drifted apart — the
+          // schema said 15 %, the commercial rule said 25 %, and nothing failed.
           status: 'PENDING_APPROVAL',
           billingModel: 'COMMISSION',
-          commissionBasisPoints: 1500,
         })
         .returning({ id: schema.businesses.id });
 
