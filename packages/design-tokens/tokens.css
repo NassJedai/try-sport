@@ -6,7 +6,15 @@
  * regenerated, and tokens.test.ts fails if the two drift apart.
  */
 
-@theme {
+/**
+ * `static` because Tailwind otherwise drops any theme variable no utility
+ * happens to reference. The dark block below is plain CSS and is emitted whole,
+ * so pruning produced a palette that was complete in dark and full of holes in
+ * light — `--color-price` resolved to nothing until a `text-price` appeared
+ * somewhere. Anything read through a bare `var()` (inline style, CSS module)
+ * needs both halves present.
+ */
+@theme static {
   --color-ink-950: #0A0907;
   --color-ink-900: #111111;
   --color-ink-800: #2A2A2A;
@@ -36,17 +44,22 @@
   --color-accent-subtle: #F5F6DC;
   --color-on-accent: #111111;
   --color-accent-text: #397A00;
-  --color-price: #C2410C;
+  --color-price: #B93903;
   --color-price-subtle: #FFF3EC;
+  --color-price-surface: #EA580C;
+  --color-on-price: #111111;
   --color-success: #15803D;
   --color-success-subtle: #EAF7EF;
   --color-success-surface: #22C55E;
+  --color-on-success: #111111;
   --color-warning: #A16207;
   --color-warning-subtle: #FEF7E6;
   --color-warning-surface: #F59E0B;
+  --color-on-warning: #111111;
   --color-danger: #B91C1C;
   --color-danger-subtle: #FEECEC;
   --color-danger-surface: #EF4444;
+  --color-on-danger: #111111;
   --color-focus-ring: #111111;
   --color-focus-ring-inverse: #FFFFFF;
   --color-skeleton: #E9E9E5;
@@ -86,15 +99,20 @@
   --color-accent-text: #C6FF36;
   --color-price: #FB923C;
   --color-price-subtle: rgba(251, 146, 60, 0.14);
+  --color-price-surface: #EA580C;
+  --color-on-price: #111111;
   --color-success: #4ADE80;
   --color-success-subtle: rgba(74, 222, 128, 0.14);
   --color-success-surface: #22C55E;
+  --color-on-success: #111111;
   --color-warning: #FBBF24;
   --color-warning-subtle: rgba(251, 191, 36, 0.14);
   --color-warning-surface: #F59E0B;
-  --color-danger: #DC2626;
-  --color-danger-subtle: rgba(220, 38, 38, 0.16);
+  --color-on-warning: #111111;
+  --color-danger: #FCA5A5;
+  --color-danger-subtle: rgba(252, 165, 165, 0.16);
   --color-danger-surface: #EF4444;
+  --color-on-danger: #111111;
   --color-focus-ring: #F7F7F2;
   --color-focus-ring-inverse: #111111;
   --color-skeleton: #3E3E3C;

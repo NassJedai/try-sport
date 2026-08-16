@@ -68,10 +68,10 @@ export default function DashboardPage() {
           <h1 className="text-3xl font-bold">Tableau de bord</h1>
           <p className="mt-1 text-ink-500">Tes essais et ce qu’ils rapportent.</p>
           <nav className="mt-3 flex gap-4 text-sm font-semibold" aria-label="Sections">
-            <a href="/leads" className="text-accent hover:underline">
+            <a href="/leads" className="text-accent-text hover:underline">
               Prospects
             </a>
-            <a href="/offers" className="text-accent hover:underline">
+            <a href="/offers" className="text-accent-text hover:underline">
               Offres & planning
             </a>
           </nav>
@@ -131,13 +131,28 @@ export default function DashboardPage() {
               {data ? (data.attendanceRate * 100).toFixed(0) : 0}%) → {data?.conversions ?? 0}{' '}
               clients ({data ? (data.conversionRate * 100).toFixed(0) : 0}%)
             </p>
+            {/*
+              Quatre comparaisons, pas trois : chaque segment contre la piste,
+              les deux segments entre eux, et la piste contre la carte.
+
+              C'est la dernière qui manquait — la piste était à 1,15:1 du blanc,
+              donc invisible, donc la longueur totale de la barre aussi : les
+              proportions que les segments encodent n'étaient lisibles par
+              personne, quelle que soit leur couleur. D'où le contour.
+
+              Le lime, lui, disparaissait sur la piste (1,03:1). Il est remplacé
+              par l'encre, non parce que deux couleurs sombres ne peuvent pas se
+              distinguer — encre et vert donnent 3,77:1 — mais parce que deux
+              couleurs de luminance *voisine* ne le peuvent pas, quelle que soit
+              leur teinte : le ratio WCAG ne mesure que la luminance.
+            */}
             <div
-              className="mt-4 flex h-3 overflow-hidden rounded-[--radius-pill] bg-surface-muted"
+              className="mt-4 flex h-3 overflow-hidden rounded-[--radius-pill] bg-surface-muted ring-1 ring-border-strong"
               role="img"
               aria-label={`Taux de présence ${data ? (data.attendanceRate * 100).toFixed(0) : 0}%, conversion ${data ? (data.conversionRate * 100).toFixed(0) : 0}%`}
             >
               <div
-                className="bg-accent"
+                className="bg-text-primary"
                 style={{ width: `${(data?.attendanceRate ?? 0) * 100}%` }}
               />
               <div

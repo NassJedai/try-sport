@@ -36,16 +36,21 @@ const CSS_VARIABLE_BY_TOKEN: Record<keyof Theme, string> = {
 
   price: '--color-price',
   priceSubtle: '--color-price-subtle',
+  priceSurface: '--color-price-surface',
+  onPrice: '--color-on-price',
 
   success: '--color-success',
   successSubtle: '--color-success-subtle',
   successSurface: '--color-success-surface',
+  onSuccess: '--color-on-success',
   warning: '--color-warning',
   warningSubtle: '--color-warning-subtle',
   warningSurface: '--color-warning-surface',
+  onWarning: '--color-on-warning',
   danger: '--color-danger',
   dangerSubtle: '--color-danger-subtle',
   dangerSurface: '--color-danger-surface',
+  onDanger: '--color-on-danger',
 
   focusRing: '--color-focus-ring',
   focusRingInverse: '--color-focus-ring-inverse',
@@ -94,7 +99,15 @@ export function renderTokensCss(): string {
  * regenerated, and tokens.test.ts fails if the two drift apart.
  */
 
-@theme {
+/**
+ * \`static\` because Tailwind otherwise drops any theme variable no utility
+ * happens to reference. The dark block below is plain CSS and is emitted whole,
+ * so pruning produced a palette that was complete in dark and full of holes in
+ * light — \`--color-price\` resolved to nothing until a \`text-price\` appeared
+ * somewhere. Anything read through a bare \`var()\` (inline style, CSS module)
+ * needs both halves present.
+ */
+@theme static {
 ${ramp}
   --color-white: ${palette.white};
 

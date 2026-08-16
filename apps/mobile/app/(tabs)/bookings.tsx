@@ -124,7 +124,7 @@ function BookingRow({ booking }: { booking: BookingDto }) {
 
       {booking.checkIn && (
         <View style={[styles.code, { backgroundColor: theme.accentSubtle }]}>
-          <Text style={[styles.codeText, { color: theme.accent }]}>QR</Text>
+          <Text style={[styles.codeText, { color: theme.accentText }]}>QR</Text>
         </View>
       )}
     </Pressable>

@@ -68,8 +68,13 @@ export const palette = {
    * Reserved for prices and discovery pricing — never decorative. The accent
    * says "act"; this says "costs money". The charter mockups collapse the two
    * into one lime, which is exactly the distinction we are keeping.
+   *
+   * One step darker than the #C2410C it replaces: on the warm surfaces that
+   * value sat at 4.501:1, close enough to the floor that a single point of
+   * luminance anywhere would have dropped it below AA without anything saying so.
    */
-  signal600: '#C2410C',
+  signal700: '#B93903',
+  /** Vivid tier, for price pills carrying ink. */
   signal500: '#EA580C',
   signal50: '#FFF3EC',
 
@@ -83,18 +88,16 @@ export const palette = {
   warning600: '#A16207',
   warning50: '#FEF7E6',
   danger600: '#B91C1C',
-  /**
-   * Dark-theme danger. Kept at this value even though it does not clear AA as
-   * text on the dark surfaces: `Button`'s danger variant paints it as a *fill*
-   * under hardcoded white text, and anything light enough to read as text drops
-   * that button to 1.9:1. See the note in tokens.test.ts.
-   */
-  danger500: '#DC2626',
   danger50: '#FEECEC',
 
   /**
    * The charter's vivid status tier, kept for what it is actually good at:
    * filled pills and dots carrying dark text. Never as text itself.
+   *
+   * This is the tier a filled status control wants. The 600/700 values above
+   * are text colours: dark enough to read on a pale page, which makes them too
+   * dark to sit under anything but white — the overload that put a 1.9:1
+   * destructive button in the dark theme.
    */
   successSurface: '#22C55E',
   warningSurface: '#F59E0B',
@@ -103,6 +106,7 @@ export const palette = {
   /** Dark-theme status text. Lightened until each clears AA on ink700. */
   successDark: '#4ADE80',
   warningDark: '#FBBF24',
+  dangerDark: '#FCA5A5',
   priceDark: '#FB923C',
 } as const;
 
@@ -141,18 +145,28 @@ export interface Theme {
    */
   accentText: string;
 
+  /**
+   * Status and price come in three parts, and mixing them up is what broke the
+   * danger button: `x` is the text colour, `xSubtle` the pale wash it is legible
+   * on, `xSurface` the filled tier — which carries `onX`, never white.
+   */
   price: string;
   priceSubtle: string;
+  priceSurface: string;
+  onPrice: string;
 
   success: string;
   successSubtle: string;
   successSurface: string;
+  onSuccess: string;
   warning: string;
   warningSubtle: string;
   warningSurface: string;
+  onWarning: string;
   danger: string;
   dangerSubtle: string;
   dangerSurface: string;
+  onDanger: string;
 
   /**
    * Focus indicator, drawn as two concentric strokes: `focusRing` on the
@@ -192,18 +206,23 @@ export const lightTheme: Theme = {
   onAccent: palette.ink900,
   accentText: palette.lime800,
 
-  price: palette.signal600,
+  price: palette.signal700,
   priceSubtle: palette.signal50,
+  priceSurface: palette.signal500,
+  onPrice: palette.ink900,
 
   success: palette.success600,
   successSubtle: palette.success50,
   successSurface: palette.successSurface,
+  onSuccess: palette.ink900,
   warning: palette.warning600,
   warningSubtle: palette.warning50,
   warningSurface: palette.warningSurface,
+  onWarning: palette.ink900,
   danger: palette.danger600,
   dangerSubtle: palette.danger50,
   dangerSurface: palette.dangerSurface,
+  onDanger: palette.ink900,
 
   focusRing: palette.ink900,
   focusRingInverse: palette.white,
@@ -237,16 +256,25 @@ export const darkTheme: Theme = {
 
   price: palette.priceDark,
   priceSubtle: 'rgba(251, 146, 60, 0.14)',
+  priceSurface: palette.signal500,
+  onPrice: palette.ink900,
 
   success: palette.successDark,
   successSubtle: 'rgba(74, 222, 128, 0.14)',
   successSurface: palette.successSurface,
+  onSuccess: palette.ink900,
   warning: palette.warningDark,
   warningSubtle: 'rgba(251, 191, 36, 0.14)',
   warningSurface: palette.warningSurface,
-  danger: palette.danger500,
-  dangerSubtle: 'rgba(220, 38, 38, 0.16)',
+  onWarning: palette.ink900,
+  /**
+   * Free to be a readable text colour now that the destructive button paints
+   * `dangerSurface` instead of this.
+   */
+  danger: palette.dangerDark,
+  dangerSubtle: 'rgba(252, 165, 165, 0.16)',
   dangerSurface: palette.dangerSurface,
+  onDanger: palette.ink900,
 
   focusRing: palette.ink50,
   focusRingInverse: palette.ink900,

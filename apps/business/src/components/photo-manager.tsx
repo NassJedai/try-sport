@@ -86,7 +86,7 @@ export function PhotoManager({
         </label>
       </div>
 
-      {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
+      {error && <p className="mt-2 text-sm text-danger">{error}</p>}
 
       {isLoading ? (
         <div className="mt-3 h-24 w-40 animate-pulse rounded-[--radius-card] bg-surface-muted" aria-hidden />

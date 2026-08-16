@@ -19,13 +19,28 @@ import { PhotoManager } from '@/components/photo-manager';
  * un éditeur complet.
  */
 
+/**
+ * Les pastilles passent par les jetons plutôt que par la palette Tailwind par
+ * défaut : ses `*-100` sont en OKLCH froid, posés sur des neutres chauds, et
+ * personne ne vérifiait leur contraste.
+ *
+ * Les quatre teintes sémantiques sont asservies par tokens.test.ts, qui vérifie
+ * chacune sur son propre lavis clair. Les deux états neutres ne le sont pas —
+ * le test exclut `surfaceMuted` de ses surfaces sanctionnées — et prennent donc
+ * `text-text-secondary`, qui tient 9,3:1 sans dépendre de la dérogation
+ * `.text-ink-500` de globals.css, appelée à disparaître.
+ *
+ * « En vérification » n'a pas de bleu à sa disposition — la palette n'en a pas —
+ * et prend le lavis d'accent : c'est un état transitoire vers la mise en ligne,
+ * pas une information neutre comme un brouillon.
+ */
 const OFFER_STATUS_LABELS: Record<string, { label: string; tone: string }> = {
-  ACTIVE: { label: 'En ligne', tone: 'bg-green-100 text-green-800' },
-  PAUSED: { label: 'En pause', tone: 'bg-amber-100 text-amber-800' },
-  PENDING_APPROVAL: { label: 'En vérification', tone: 'bg-blue-100 text-blue-800' },
-  DRAFT: { label: 'Brouillon', tone: 'bg-surface-muted text-ink-500' },
-  REJECTED: { label: 'Refusée', tone: 'bg-red-100 text-red-800' },
-  ARCHIVED: { label: 'Archivée', tone: 'bg-surface-muted text-ink-500' },
+  ACTIVE: { label: 'En ligne', tone: 'bg-success-subtle text-success' },
+  PAUSED: { label: 'En pause', tone: 'bg-warning-subtle text-warning' },
+  PENDING_APPROVAL: { label: 'En vérification', tone: 'bg-accent-subtle text-accent-text' },
+  DRAFT: { label: 'Brouillon', tone: 'bg-surface-muted text-text-secondary' },
+  REJECTED: { label: 'Refusée', tone: 'bg-danger-subtle text-danger' },
+  ARCHIVED: { label: 'Archivée', tone: 'bg-surface-muted text-text-secondary' },
 };
 
 export default function OffersPage() {
@@ -98,7 +113,7 @@ export default function OffersPage() {
         ) : offers.length === 0 ? (
           <p className="mt-4 text-ink-500">
             Aucune offre pour l’instant.{' '}
-            <a href="/onboarding" className="font-semibold text-accent">
+            <a href="/onboarding" className="font-semibold text-accent-text">
               Inscris ton établissement
             </a>{' '}
             pour en créer une.
@@ -108,7 +123,7 @@ export default function OffersPage() {
             {offers.map((offer) => {
               const badge = OFFER_STATUS_LABELS[offer.status] ?? {
                 label: offer.status,
-                tone: 'bg-surface-muted text-ink-500',
+                tone: 'bg-surface-muted text-text-secondary',
               };
 
               return (
@@ -131,7 +146,7 @@ export default function OffersPage() {
                       · {offer.upcomingSlots} créneau{offer.upcomingSlots > 1 ? 'x' : ''} à venir
                     </p>
                     {offer.status === 'REJECTED' && offer.rejectedReason && (
-                      <p className="mt-1 text-sm text-red-700">Motif : {offer.rejectedReason}</p>
+                      <p className="mt-1 text-sm text-danger">Motif : {offer.rejectedReason}</p>
                     )}
                   </div>
 
@@ -261,7 +276,7 @@ function SlotTable({
                           setConfirming(slot.id);
                           setReason('');
                         }}
-                        className="font-semibold text-red-700 hover:underline"
+                        className="font-semibold text-danger hover:underline"
                       >
                         Annuler
                       </button>
@@ -296,7 +311,7 @@ function SlotTable({
                         <button
                           type="submit"
                           disabled={onCancel.isPending}
-                          className="rounded bg-red-700 px-3 py-1.5 font-semibold text-white disabled:opacity-50"
+                          className="rounded bg-danger-surface px-3 py-1.5 font-semibold text-on-danger disabled:opacity-50"
                         >
                           Confirmer
                         </button>

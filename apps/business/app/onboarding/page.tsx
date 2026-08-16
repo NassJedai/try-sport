@@ -232,7 +232,9 @@ export default function OnboardingPage() {
         {[0, 1, 2, 3].map((i) => (
           <div
             key={i}
-            className={`h-1.5 flex-1 rounded-full ${i <= stepIndex ? 'bg-accent' : 'bg-surface-muted'}`}
+            // accent-text, pas accent : les segments faits et à faire ne se
+            // distinguaient qu'à 1,03:1, soit une barre d'un seul tenant.
+            className={`h-1.5 flex-1 rounded-full ${i <= stepIndex ? 'bg-accent-text' : 'bg-surface-muted'}`}
           />
         ))}
       </div>

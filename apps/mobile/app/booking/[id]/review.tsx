@@ -91,13 +91,23 @@ export default function ReviewScreen() {
             hitSlop={8}
             style={styles.star}
           >
+            {/*
+              La note est portée par la forme du glyphe, pas par sa couleur.
+
+              Pleine et vide étant le même ★ à deux teintes, la note reposait
+              entièrement sur l'écart entre ces deux teintes — et cet écart ne
+              peut pas exister : allumée et éteinte doivent toutes deux se
+              détacher d'une page claire, donc partager sa plage de luminance,
+              donc se ressembler. ★ contre ☆ règle la question indépendamment
+              du thème et de la vision des couleurs.
+            */}
             <Text
               style={{
                 fontSize: 40,
-                color: value <= rating ? theme.accent : theme.border,
+                color: value <= rating ? theme.accentText : theme.borderStrong,
               }}
             >
-              ★
+              {value <= rating ? '★' : '☆'}
             </Text>
           </Pressable>
         ))}
@@ -136,7 +146,9 @@ export default function ReviewScreen() {
                   styles.option,
                   {
                     backgroundColor: isSelected ? theme.accent : theme.surfaceMuted,
-                    borderColor: isSelected ? theme.accent : theme.border,
+                    // Le contour est ce qui détache l'option sélectionnée de la
+                    // page : en lime sur lime il n'y a plus de bord du tout.
+                    borderColor: isSelected ? theme.accentText : theme.border,
                   },
                 ]}
               >

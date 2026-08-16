@@ -111,7 +111,9 @@ export default function NotificationsScreen() {
             accessibilityLabel="Tout marquer comme lu"
             style={styles.markAll}
           >
-            <Text style={[styles.markAllLabel, { color: theme.accent }]}>Tout marquer comme lu</Text>
+            <Text style={[styles.markAllLabel, { color: theme.accentText }]}>
+              Tout marquer comme lu
+            </Text>
           </Pressable>
         )}
       </View>
@@ -150,7 +152,7 @@ export default function NotificationsScreen() {
               <View
                 style={[
                   styles.dot,
-                  { backgroundColor: item.readAt ? 'transparent' : theme.accent },
+                  { backgroundColor: item.readAt ? 'transparent' : theme.accentText },
                 ]}
               />
               <View style={styles.rowBody}>

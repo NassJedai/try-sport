@@ -45,22 +45,7 @@ body {
   box-shadow: 0 0 0 var(--focus-ring-offset) var(--color-focus-ring-inverse);
 }
 
-/**
- * `text-accent` resolves to the readable accent, not the fill.
- *
- * Tailwind derives both `bg-accent` and `text-accent` from --color-accent, but
- * the acid lime only works as a fill: as text on a light surface it sits at
- * 1.1:1, far below the 4.5:1 floor. Rather than leave every existing
- * `text-accent` call site illegible, the utility is pointed at the darkened
- * accent, which clears AA on every light surface including accent-subtle.
- *
- * `bg-accent` is untouched and still paints the lime.
- */
 @layer utilities {
-  .text-accent {
-    color: var(--color-accent-text);
-  }
-
   /**
    * The dashboards write raw ramp steps for secondary text — `text-ink-500` on
    * 59 elements, `text-ink-400` on 23 — rather than semantic classes. Those

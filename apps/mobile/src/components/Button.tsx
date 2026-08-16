@@ -71,7 +71,10 @@ export const Button = memo(function Button({
     primary: { background: theme.accent, text: theme.onAccent, border: 'transparent' },
     secondary: { background: theme.surfaceMuted, text: theme.textPrimary, border: 'transparent' },
     ghost: { background: 'transparent', text: theme.textPrimary, border: theme.border },
-    danger: { background: theme.danger, text: '#FFFFFF', border: 'transparent' },
+    // dangerSurface, pas danger : ce dernier est la couleur du *texte* d'erreur,
+    // trop sombre en thème clair pour porter autre chose que du blanc — et trop
+    // claire en thème sombre pour en porter. Un aplat prend son on-colour.
+    danger: { background: theme.dangerSurface, text: theme.onDanger, border: 'transparent' },
   }[variant];
 
   const isInteractive = !disabled && !loading;

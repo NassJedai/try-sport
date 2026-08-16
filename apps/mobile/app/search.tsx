@@ -136,7 +136,7 @@ export default function SearchScreen() {
                       styles.chip,
                       {
                         backgroundColor: isSelected ? theme.accentSubtle : theme.surface,
-                        borderColor: isSelected ? theme.accent : theme.border,
+                        borderColor: isSelected ? theme.accentText : theme.border,
                       },
                     ]}
                   >
@@ -145,7 +145,7 @@ export default function SearchScreen() {
                       style={[
                         styles.chipLabel,
                         {
-                          color: isSelected ? theme.accent : theme.textSecondary,
+                          color: isSelected ? theme.accentText : theme.textSecondary,
                           fontWeight: isSelected ? '700' : '500',
                         },
                       ]}

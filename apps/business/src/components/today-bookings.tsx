@@ -106,7 +106,7 @@ export function TodayBookings({ businessId }: { businessId: string }) {
                   <td className="px-4 py-3">
                     {booking.attendeeFirstName}
                     {booking.isFirstVisit && (
-                      <span className="ml-2 rounded-[--radius-pill] bg-accent-subtle px-2 py-0.5 text-xs font-semibold text-accent">
+                      <span className="ml-2 rounded-[--radius-pill] bg-accent-subtle px-2 py-0.5 text-xs font-semibold text-accent-text">
                         1re visite
                       </span>
                     )}

@@ -137,7 +137,7 @@ describe('the lime is a fill, not a text colour', () => {
   });
 });
 
-describe.each(THEMES)('%s theme — status colours', (name, theme) => {
+describe.each(THEMES)('%s theme — status colours', (_name, theme) => {
   /**
    * Status text is sanctioned on `surface`, `background` and its own subtle
    * tint — not on `surfaceMuted` (nor on `backgroundSunken`, which holds the
@@ -151,7 +151,7 @@ describe.each(THEMES)('%s theme — status colours', (name, theme) => {
     ['warning', theme.warning, theme.warningSubtle],
     ['danger', theme.danger, theme.dangerSubtle],
     ['price', theme.price, theme.priceSubtle],
-  ].filter(([label]) => !(name === 'dark' && label === 'danger')) as [string, string, string][];
+  ];
 
   it.each(pairs)('%s clears AA on surface, background and its own tint', (_label, text, subtle) => {
     expect(contrast(text, theme.surface)).toBeGreaterThanOrEqual(AA_TEXT);
@@ -159,30 +159,35 @@ describe.each(THEMES)('%s theme — status colours', (name, theme) => {
     expect(contrast(text, flatten(subtle, theme.background))).toBeGreaterThanOrEqual(AA_TEXT);
   });
 
-  it('vivid status fills carry ink text', () => {
-    for (const fill of [theme.successSurface, theme.warningSurface, theme.dangerSurface]) {
-      expect(contrast(theme.onAccent, fill)).toBeGreaterThanOrEqual(AA_TEXT);
+  /**
+   * Each filled tier against its own `on*`, not against a shared one. They hold
+   * the same value today; asserting them separately is what lets one of them
+   * move later without the others silently coming along.
+   */
+  /**
+   * A filled tier that becomes a *control* — a button on a card rather than a
+   * pill in a row — also has to show its own edge. Only the two that are
+   * actually used that way are asserted: `successSurface` and `warningSurface`
+   * sit at 2.3:1 and 2.2:1 of white and would fail, which is exactly why they
+   * stay pills.
+   */
+  it('the filled tiers used as controls show an edge against the card', () => {
+    for (const fill of [theme.dangerSurface, theme.priceSurface]) {
+      expect(contrast(fill, theme.surface)).toBeGreaterThanOrEqual(AA_NON_TEXT);
     }
   });
-});
 
-/**
- * A gap that predates this palette, recorded rather than quietly carried.
- *
- * `darkTheme.danger` is overloaded: four screens use it as error *text*, where
- * it wants to be light, and `Button`'s danger variant paints it as a *fill*
- * under a hardcoded `#FFFFFF`, where it wants to be dark. One token cannot do
- * both. It stays at #DC2626 because that is the value the fill needs — lighten
- * it to read as text and the "cancel booking" button drops to 1.9:1.
- *
- * The fix is a `dangerSurface` fill plus an `onDanger` token at the call site,
- * which is a component change. Until then this test pins the trade-off: if
- * either number moves, someone has touched it and should read the above.
- */
-describe('known gap — dark theme danger', () => {
-  it('is too dark to read as text, and stays that way on purpose', () => {
-    expect(contrast(darkTheme.danger, darkTheme.surface)).toBeLessThan(AA_TEXT);
-    expect(contrast('#FFFFFF', darkTheme.danger)).toBeGreaterThanOrEqual(AA_TEXT);
+  it('every filled status tier is legible under its own on-colour', () => {
+    const filled: [string, string][] = [
+      [theme.onSuccess, theme.successSurface],
+      [theme.onWarning, theme.warningSurface],
+      [theme.onDanger, theme.dangerSurface],
+      [theme.onPrice, theme.priceSurface],
+      [theme.onAccent, theme.accent],
+    ];
+    for (const [ink, fill] of filled) {
+      expect(contrast(ink, fill)).toBeGreaterThanOrEqual(AA_TEXT);
+    }
   });
 });
 

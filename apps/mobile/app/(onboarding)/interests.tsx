@@ -61,7 +61,7 @@ export default function InterestsScreen() {
                     styles.chip,
                     {
                       backgroundColor: isSelected ? theme.accent : theme.surfaceMuted,
-                      borderColor: isSelected ? theme.accent : theme.border,
+                      borderColor: isSelected ? theme.accentText : theme.border,
                     },
                   ]}
                 >

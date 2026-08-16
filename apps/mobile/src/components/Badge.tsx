@@ -13,11 +13,16 @@ const LABELS: Record<OfferBadge, string> = {
 export function Badge({ kind }: { kind: OfferBadge }) {
   const theme = useTheme();
 
+  /**
+   * Filled tiers with their own on-colours, never a hardcoded white. `success`
+   * and `price` are *text* colours — dark enough to read on a pale page, which
+   * left white on them at 1.7:1 and 2.3:1 in the dark theme.
+   */
   const colors: Record<OfferBadge, { background: string; text: string }> = {
-    FREE: { background: theme.success, text: '#FFFFFF' },
+    FREE: { background: theme.successSurface, text: theme.onSuccess },
     NEW: { background: theme.accent, text: theme.onAccent },
     POPULAR: { background: theme.textPrimary, text: theme.background },
-    DISCOVERY_PRICE: { background: theme.price, text: '#FFFFFF' },
+    DISCOVERY_PRICE: { background: theme.priceSurface, text: theme.onPrice },
   };
 
   const palette = colors[kind];
