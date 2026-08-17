@@ -407,6 +407,22 @@ async function main(): Promise<void> {
     .returning();
   if (!demoReservation) throw new Error('Failed to insert demo reservation');
 
+  // Mirrors what BookingService.create writes in the same transaction as the
+  // reservation (apps/api/src/modules/bookings/booking.service.ts:173-181):
+  // same scope columns, reservedAt at the moment of booking, status matching
+  // the reservation's own status. Without this row the demo booking is
+  // invisible to trial eligibility — CheckInService then updates it in place
+  // (checkin.service.ts:113-116), exactly like every other reservation here.
+  await db.insert(schema.trialHistory).values({
+    userId: demoUser.id,
+    businessId: demoVenue.businessId,
+    venueId: demoVenue.id,
+    offerId: demoOffer.id,
+    reservationId: demoReservation.id,
+    reservedAt: now,
+    status: 'CONFIRMED',
+  });
+
   console.log(
     `  demo reservation ${demoReservation.id} — code ${demoReservation.checkInCode}, slot at ${demoSlotStartAt.toISOString()} (check-in window open now)`,
   );
