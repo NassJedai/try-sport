@@ -61,7 +61,13 @@ function buildService(
 
   // Horloge figée : « dans 3 heures » doit rester dans 3 heures pendant que le
   // test tourne, sinon la fenêtre choisie dépend de la vitesse de la machine.
-  return new ReminderService(db, { now: () => now } as never, logger, notifications);
+  return new ReminderService(
+    db,
+    { now: () => now } as never,
+    logger,
+    { BUSINESS_PUBLIC_URL: 'http://localhost:3001' } as never,
+    notifications,
+  );
 }
 
 describeIfDatabase('rappels de séance', () => {

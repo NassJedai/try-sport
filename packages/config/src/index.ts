@@ -21,6 +21,13 @@ const baseSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   /** Public origin of the API, used to build absolute links in emails. */
   API_PUBLIC_URL: z.url().default('http://localhost:3000'),
+  /**
+   * Origine publique du tableau de bord des salles. Sert à construire le lien
+   * direct vers l'écran de complétion/correction dans les e-mails envoyés aux
+   * gérants (décision de modération, relance J+1/J+3) — un lien relatif n'a
+   * pas de sens dans un e-mail, qui n'a pas d'origine.
+   */
+  BUSINESS_PUBLIC_URL: z.url().default('http://localhost:3001'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),

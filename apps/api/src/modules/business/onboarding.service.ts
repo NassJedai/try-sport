@@ -456,18 +456,28 @@ export class OnboardingService {
         metadata: { fields: Object.keys(dto), notifyAdmin: verdict.notifyAdmin },
       });
 
-      return { businessId: existing.businessId, notifyAdmin: [...verdict.notifyAdmin] };
+      // `existing` (relu avant l'UPDATE, sous verrou) et `updated` (rendu par
+      // le `RETURNING`) portent chacun une des deux moitiés dont l'alerte
+      // admin a besoin — les capturer ici coûte une lecture de propriété,
+      // pas une requête de plus.
+      const identityChanges = verdict.notifyAdmin.map((field) => ({
+        field,
+        oldValue: existing[field as keyof typeof existing] as unknown,
+        newValue: updated[field as keyof typeof updated] as unknown,
+      }));
+
+      return { businessId: existing.businessId, identityChanges };
     });
 
     // Émis après le commit, jamais dedans — voir refund-ledger.service.ts et
     // la correction de LeadConverted (business.service.ts) : un abonné ne
     // doit jamais apprendre un changement qu'un rollback peut encore annuler.
-    if (result.notifyAdmin.length > 0) {
+    if (result.identityChanges.length > 0) {
       this.events.emit('VenueIdentityChanged', {
         venueId: input.venueId,
         businessId: result.businessId,
         actorId: input.actor.id,
-        fields: result.notifyAdmin,
+        changes: result.identityChanges,
       });
     }
 

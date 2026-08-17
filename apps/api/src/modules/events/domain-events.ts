@@ -68,14 +68,23 @@ export interface DomainEventMap {
    * déjà en ligne (`ACTIVE`/`PAUSED`) — voir `editable-fields.ts`. L'écriture
    * est déjà passée, ce n'est jamais une décision : c'est une notification.
    * Émis par `OnboardingService.updateVenue`, après commit.
+   *
+   * Porte la valeur avant/après de chaque champ réellement modifié — pas
+   * seulement son nom. `updateVenue` lit déjà la ligne existante pour sa
+   * fusion (`key in dto ? dto.key : existing.key`) : les deux valeurs sont
+   * déjà en main au moment d'émettre, les transmettre ne coûte rien et évite
+   * qu'un consommateur (l'alerte admin) doive aller les rechercher ailleurs.
    */
   VenueIdentityChanged: {
     venueId: string;
     businessId: string;
     /** Qui a fait le changement — un membre du gérant, jamais le système. */
     actorId: string;
-    /** Les champs `IDENTITY` effectivement modifiés dans cette requête. */
-    fields: readonly string[];
+    /**
+     * Uniquement les champs `IDENTITY` réellement modifiés dans cette
+     * requête — jamais les huit systématiquement.
+     */
+    changes: readonly { field: string; oldValue: unknown; newValue: unknown }[];
   };
   /**
    * Décision de modération admin sur un lieu — approbation, refus, suspension,

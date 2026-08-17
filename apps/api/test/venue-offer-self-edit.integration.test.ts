@@ -251,7 +251,10 @@ describeIfDatabase('inscription autonome — édition et soumission', () => {
       }),
     ).rejects.toMatchObject({ status: 409, code: 'CONFLICT' });
 
-    const received: { venueId: string; fields: readonly string[] }[] = [];
+    const received: {
+      venueId: string;
+      changes: readonly { field: string; oldValue: unknown; newValue: unknown }[];
+    }[] = [];
     events.on('VenueIdentityChanged', (payload) => {
       received.push(payload);
     });
@@ -265,7 +268,14 @@ describeIfDatabase('inscription autonome — édition et soumission', () => {
     expect(updated.name).toBe('Nouveau Nom De Salle');
     expect(received).toHaveLength(1);
     expect(received[0]!.venueId).toBe(venue.id);
-    expect(received[0]!.fields).toContain('name');
+    // L'événement porte la valeur avant/après, pas seulement le nom du champ —
+    // c'est ce qui permet à l'alerte admin de dire « Ancien Nom → Nouveau Nom »
+    // sans aller la rechercher ailleurs.
+    expect(received[0]!.changes).toContainEqual({
+      field: 'name',
+      oldValue: venue.name,
+      newValue: 'Nouveau Nom De Salle',
+    });
   });
 
   it('referencePriceAmount est revalidé contre le priceAmount STOCKÉ, pas contre le corps de la requête', async () => {

@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, expect, it } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
 import { schema } from '@try/database';
 import { ModerationService } from '../src/modules/admin/moderation.service.js';
+import { DomainEvents } from '../src/modules/events/domain-events.js';
 import { connect, describeIfDatabase } from './integration-setup.js';
 
 /**
@@ -47,6 +48,7 @@ describeIfDatabase('inscription → visibilité', () => {
       { now: () => new Date() } as never,
       silentLogger as never,
       { record: () => Promise.resolve() } as never,
+      new DomainEvents(silentLogger as never),
     );
   }
 

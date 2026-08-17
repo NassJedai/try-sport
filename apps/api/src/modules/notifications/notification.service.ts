@@ -137,6 +137,138 @@ export class NotificationService {
   }
 
   /**
+   * Décision de modération sur un lieu — approbation, refus, suspension,
+   * réintégration.
+   *
+   * Le motif figure tel quel sur un refus ou une suspension : le paraphraser
+   * ferait dire à TRIALYA autre chose que ce que l'admin a écrit, et un
+   * gérant qui doit corriger a besoin du motif exact, pas d'un résumé. Le
+   * lien de correction est toujours inclus — même sur une approbation, où il
+   * ne sert à rien de spécial, par simplicité d'appel — mais c'est sur un
+   * refus qu'il compte : un refus sans lien de correction est une impasse.
+   */
+  async sendVenueModerationDecision(input: {
+    email: string;
+    venueName: string;
+    decision: 'APPROVE' | 'REJECT' | 'SUSPEND' | 'REINSTATE';
+    reason: string | null;
+    correctionUrl: string;
+  }): Promise<void> {
+    const { subject, lines } = this.venueDecisionContent(input);
+    await this.safeSend({ to: input.email, subject, body: lines.join('\n\n') });
+  }
+
+  private venueDecisionContent(input: {
+    venueName: string;
+    decision: 'APPROVE' | 'REJECT' | 'SUSPEND' | 'REINSTATE';
+    reason: string | null;
+    correctionUrl: string;
+  }): { subject: string; lines: string[] } {
+    switch (input.decision) {
+      case 'APPROVE':
+        return {
+          subject: `${input.venueName} est en ligne sur TRIALYA`,
+          lines: [
+            `Bonne nouvelle : « ${input.venueName} » vient d'être approuvé et apparaît maintenant dans la recherche TRIALYA.`,
+          ],
+        };
+      case 'REJECT':
+        return {
+          subject: `À corriger : « ${input.venueName} »`,
+          lines: [
+            `« ${input.venueName} » n'a pas été approuvé, pour cette raison :`,
+            input.reason ?? '',
+            `Corrige ton dossier ici, puis soumets-le à nouveau : ${input.correctionUrl}`,
+            `On te répond sous 48 h une fois la correction soumise.`,
+          ],
+        };
+      case 'SUSPEND':
+        return {
+          subject: `« ${input.venueName} » a été suspendu`,
+          lines: [
+            `« ${input.venueName} » a été suspendu et n'est plus visible sur TRIALYA, pour cette raison :`,
+            input.reason ?? '',
+            `Contacte le support TRIALYA pour lever la suspension.`,
+          ],
+        };
+      case 'REINSTATE':
+        return {
+          subject: `« ${input.venueName} » est de nouveau en ligne`,
+          lines: [`« ${input.venueName} » a été réintégré et est de nouveau visible sur TRIALYA.`],
+        };
+    }
+  }
+
+  /** Même logique que `sendVenueModerationDecision`, pour une offre. */
+  async sendOfferModerationDecision(input: {
+    email: string;
+    offerTitle: string;
+    decision: 'APPROVE' | 'REJECT' | 'PAUSE';
+    reason: string | null;
+    correctionUrl: string;
+  }): Promise<void> {
+    const { subject, lines } = this.offerDecisionContent(input);
+    await this.safeSend({ to: input.email, subject, body: lines.join('\n\n') });
+  }
+
+  private offerDecisionContent(input: {
+    offerTitle: string;
+    decision: 'APPROVE' | 'REJECT' | 'PAUSE';
+    reason: string | null;
+    correctionUrl: string;
+  }): { subject: string; lines: string[] } {
+    switch (input.decision) {
+      case 'APPROVE':
+        return {
+          subject: `« ${input.offerTitle} » est en ligne sur TRIALYA`,
+          lines: [`Bonne nouvelle : « ${input.offerTitle} » vient d'être approuvée et est réservable.`],
+        };
+      case 'REJECT':
+        return {
+          subject: `À corriger : « ${input.offerTitle} »`,
+          lines: [
+            `« ${input.offerTitle} » n'a pas été approuvée, pour cette raison :`,
+            input.reason ?? '',
+            `Corrige-la ici, puis soumets-la à nouveau : ${input.correctionUrl}`,
+            `On te répond sous 48 h une fois la correction soumise.`,
+          ],
+        };
+      case 'PAUSE':
+        return {
+          subject: `« ${input.offerTitle} » a été mise en pause`,
+          lines: [`« ${input.offerTitle} » a été mise en pause par TRIALYA et n'est plus réservable.`],
+        };
+    }
+  }
+
+  /**
+   * Relance J+1 / J+3 : le dossier d'un lieu reste incomplet, et TRIALYA le
+   * dit avec la même liste que l'assistant d'inscription et la vue admin —
+   * `missingLabels`/`missingActions` viennent du même vocabulaire partagé
+   * (`@try/contracts`), jamais reformulés ici.
+   */
+  async sendVenueSubmissionReminder(input: {
+    email: string;
+    venueName: string;
+    milestone: 'J1' | 'J3';
+    missingActions: string[];
+    completionUrl: string;
+  }): Promise<void> {
+    const dayLabel = input.milestone === 'J1' ? 'Un jour' : 'Trois jours';
+
+    await this.safeSend({
+      to: input.email,
+      subject: `Il manque encore quelque chose à « ${input.venueName} »`,
+      body: [
+        `${dayLabel} après la création de « ${input.venueName} », le dossier n'est toujours pas complet. Voici ce qu'il reste à faire :`,
+        input.missingActions.map((action) => `- ${action}`).join('\n'),
+        `Complète-le ici : ${input.completionUrl}`,
+        `Dès que c'est fait, soumets ton lieu pour approbation — TRIALYA répond sous 48 h.`,
+      ].join('\n\n'),
+    });
+  }
+
+  /**
    * Sending must never propagate into the caller's transaction. A failed email is
    * a logged incident, not a failed booking.
    */

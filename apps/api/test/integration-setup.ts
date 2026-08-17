@@ -201,6 +201,33 @@ export function expectConstraint(name: string): (error: unknown) => boolean {
 }
 
 /**
+ * Attend qu'une condition asynchrone devienne vraie.
+ *
+ * `DomainEvents.on` dispatche son handler dans une IIFE fire-and-forget (voir
+ * domain-events.ts) : l'appel qui émet l'événement ne rend pas la main
+ * lorsque le handler a fini, seulement lorsqu'il a *commencé*. Pour un
+ * handler synchrone, vider la microtask queue une fois suffit ; pour un
+ * écouteur qui fait de vraies requêtes réseau vers Postgres (plusieurs
+ * `await` d'affilée), rien ne garantit qu'un seul tick suffise — d'où ce
+ * sondage borné plutôt qu'un unique `setImmediate`.
+ */
+export async function waitFor(
+  predicate: () => Promise<boolean>,
+  options: { timeoutMs?: number; intervalMs?: number } = {},
+): Promise<void> {
+  const timeoutMs = options.timeoutMs ?? 3000;
+  const intervalMs = options.intervalMs ?? 25;
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    if (await predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+
+  throw new Error(`waitFor: condition not met within ${timeoutMs}ms`);
+}
+
+/**
  * L'e-mail est retourné, pas seulement l'id : les suites qui exercent un job
  * balayant toute la table en ont besoin pour distinguer leurs propres effets du
  * bruit du seed de développement, qui partage la même base.

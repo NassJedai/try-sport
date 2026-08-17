@@ -242,6 +242,21 @@ export class LifecycleJobsService {
   }
 
   /**
+   * Relances J+1 / J+3 des dossiers d'inscription restés incomplets.
+   *
+   * Une fois par jour suffit : contrairement aux rappels de séance, la
+   * granularité promise est le jour, pas l'heure, et le job ne renvoie
+   * jamais deux fois la même relance (`ReminderService.sendDueVenueCompletionReminders`).
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_9AM, { name: 'venue-submission-reminders' })
+  async sendVenueSubmissionReminders(): Promise<void> {
+    await this.withLock('jobs:venue-submission-reminders', async () => {
+      const sent = await this.reminders.sendDueVenueCompletionReminders();
+      if (sent > 0) this.logger.info({ count: sent }, 'sent venue submission reminders');
+    });
+  }
+
+  /**
    * Rejoue les webhooks dont le traitement a echoue.
    *
    * Le recepteur repond toujours 2xx pour ne pas faire boucler Stripe sur un

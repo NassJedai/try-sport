@@ -68,6 +68,7 @@ import { LifecycleJobsService } from './modules/jobs/lifecycle-jobs.service.js';
 import { ReferenceController } from './modules/reference/reference.controller.js';
 import { HealthController } from './modules/health/health.controller.js';
 import { BookingLifecycleListener } from './modules/events/booking-lifecycle.listener.js';
+import { ModerationLifecycleListener } from './modules/events/moderation-lifecycle.listener.js';
 
 /**
  * A modular monolith, wired in one place.
@@ -164,6 +165,7 @@ import { BookingLifecycleListener } from './modules/events/booking-lifecycle.lis
     },
 
     BookingLifecycleListener,
+    ModerationLifecycleListener,
 
     // Order matters: authentication resolves the principal that rate limiting
     // then keys on, so an authenticated user is limited per account, not per IP.

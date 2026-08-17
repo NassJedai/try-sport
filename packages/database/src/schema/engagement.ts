@@ -184,6 +184,14 @@ export const notifications = pgTable(
     reservationId: fkId('reservation_id').references(() => reservations.id, {
       onDelete: 'cascade',
     }),
+    /**
+     * Même rôle que `reservationId`, pour les relances qui portent sur un lieu
+     * plutôt que sur une réservation — la complétude d'un dossier d'inscription
+     * (rappels J+1 / J+3). `(venue_id, type)` est unique : un cron qui rejoue ne
+     * doit pas produire deux fois le même rappel pour le même lieu. Nul pour tout
+     * le reste, réservations comprises.
+     */
+    venueId: fkId('venue_id').references(() => venues.id, { onDelete: 'cascade' }),
     readAt: timestampColumn('read_at'),
     sentAt: timestampColumn('sent_at'),
     createdAt: createdAt(),
@@ -196,6 +204,9 @@ export const notifications = pgTable(
     uniqueIndex('notifications_reservation_type_key')
       .on(table.reservationId, table.type)
       .where(sql`reservation_id IS NOT NULL`),
+    uniqueIndex('notifications_venue_type_key')
+      .on(table.venueId, table.type)
+      .where(sql`venue_id IS NOT NULL`),
     index('notifications_user_recent_idx').on(table.userId, table.createdAt.desc()),
   ],
 );

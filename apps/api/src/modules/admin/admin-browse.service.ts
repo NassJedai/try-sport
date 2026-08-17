@@ -1,7 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { desc, eq, ilike, or, sql } from 'drizzle-orm';
+import { asc, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
 import { money } from '@try/utils';
 import type { CurrencyCode } from '@try/utils';
+import {
+  missingVenueSubmissionRequirements,
+  VENUE_SUBMISSION_REQUIREMENT_LABELS_FR,
+} from '@try/contracts';
+import type { VenueSubmissionRequirement } from '@try/contracts';
 import { schema } from '@try/database';
 import type { Database } from '@try/database';
 import { DATABASE } from '../../common/database.module.js';
@@ -195,5 +200,95 @@ export class AdminBrowseService {
         };
       }),
     };
+  }
+
+  /**
+   * Lieux inscrits dont le dossier reste incomplet — des prospects à
+   * relancer, pas une file de modération.
+   *
+   * Volontairement sans filtre de statut : deux lieux `ACTIVE` sans TVA
+   * existent déjà en base, hérités d'avant que la complétude ne soit
+   * vérifiée à la soumission. Ils sont hors-règle sans être bloqués par
+   * elle — la complétude ne s'évalue qu'à la soumission — et doivent
+   * apparaître ici comme n'importe quel autre dossier incomplet, décision de
+   * Nassim : pas de traitement manuel à part. Un lieu `deleted_at` n'est en
+   * revanche jamais un prospect.
+   *
+   * La TVA vit sur `businesses`, pas sur `venues` : la jointure est
+   * obligatoire, exactement comme dans `BusinessService.listVenues`.
+   */
+  async incompleteVenues(actor: AuthenticatedUser): Promise<{
+    items: {
+      id: string;
+      name: string;
+      status: string;
+      businessId: string;
+      businessName: string;
+      missing: VenueSubmissionRequirement[];
+      missingLabels: string[];
+      createdAt: string;
+    }[];
+  }> {
+    this.assertAdmin(actor);
+
+    const rows = await this.db
+      .select({
+        id: schema.venues.id,
+        name: schema.venues.name,
+        status: schema.venues.status,
+        description: schema.venues.description,
+        createdAt: schema.venues.createdAt,
+        businessId: schema.businesses.id,
+        businessName: schema.businesses.name,
+        vatNumber: schema.businesses.vatNumber,
+      })
+      .from(schema.venues)
+      .innerJoin(schema.businesses, eq(schema.businesses.id, schema.venues.businessId))
+      .where(isNull(schema.venues.deletedAt))
+      .orderBy(asc(schema.venues.createdAt));
+
+    if (rows.length === 0) return { items: [] };
+
+    const venueIds = rows.map((row) => row.id);
+
+    const [offerCounts, imageCounts] = await Promise.all([
+      this.db
+        .select({ venueId: schema.offers.venueId, count: sql<number>`COUNT(*)::int` })
+        .from(schema.offers)
+        .where(inArray(schema.offers.venueId, venueIds))
+        .groupBy(schema.offers.venueId),
+      this.db
+        .select({ venueId: schema.venueImages.venueId, count: sql<number>`COUNT(*)::int` })
+        .from(schema.venueImages)
+        .where(inArray(schema.venueImages.venueId, venueIds))
+        .groupBy(schema.venueImages.venueId),
+    ]);
+
+    const offerCountByVenue = new Map(offerCounts.map((row) => [row.venueId, row.count]));
+    const imageCountByVenue = new Map(imageCounts.map((row) => [row.venueId, row.count]));
+
+    const items = rows
+      .map((row) => {
+        const missing = missingVenueSubmissionRequirements({
+          offerCount: offerCountByVenue.get(row.id) ?? 0,
+          imageCount: imageCountByVenue.get(row.id) ?? 0,
+          description: row.description,
+          vatNumber: row.vatNumber,
+        });
+        return { row, missing };
+      })
+      .filter(({ missing }) => missing.length > 0)
+      .map(({ row, missing }) => ({
+        id: row.id,
+        name: row.name,
+        status: row.status,
+        businessId: row.businessId,
+        businessName: row.businessName,
+        missing,
+        missingLabels: missing.map((requirement) => VENUE_SUBMISSION_REQUIREMENT_LABELS_FR[requirement]),
+        createdAt: row.createdAt.toISOString(),
+      }));
+
+    return { items };
   }
 }

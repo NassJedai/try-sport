@@ -13,6 +13,7 @@ import { ApiException } from '../../common/errors/api-exception.js';
 import { AuditService } from './audit.service.js';
 import { OnboardingService } from '../business/onboarding.service.js';
 import { isPlatformAdmin, type AuthenticatedUser } from '../../common/auth/current-user.js';
+import { DomainEvents } from '../events/domain-events.js';
 
 export interface ModerationQueueItem {
   id: string;
@@ -37,6 +38,7 @@ export class ModerationService {
     @Inject(CLOCK) private readonly clock: Clock,
     @Inject(LOGGER) private readonly logger: Logger,
     private readonly audit: AuditService,
+    private readonly events: DomainEvents,
   ) {}
 
   private assertAdmin(actor: AuthenticatedUser): void {
@@ -126,7 +128,7 @@ export class ModerationService {
         ? OnboardingService.assertRejectionReason(input.reason)
         : null;
 
-    return this.db.transaction(async (tx) => {
+    const result = await this.db.transaction(async (tx) => {
       const [venue] = await tx
         .select({
           id: schema.venues.id,
@@ -209,8 +211,26 @@ export class ModerationService {
         'venue moderation decision',
       );
 
-      return { status: target };
+      return { status: target, businessId: venue.businessId };
     });
+
+    // Émis après le commit, jamais dedans — un `decideVenue` tient un `FOR
+    // UPDATE` sur la ligne du lieu ; un fournisseur d'e-mail lent à l'intérieur
+    // retiendrait ce verrou, et un événement émis avant le commit annoncerait
+    // une décision qu'un rollback peut encore annuler. Voir
+    // `VenueIdentityChanged` (onboarding.service.ts) et la correction de
+    // `LeadConverted` (business.service.ts) pour le même principe déjà appliqué
+    // ailleurs — à l'inverse de `BookingConfirmed`
+    // (`booking.service.ts:205`), dette connue, pas un modèle à suivre.
+    this.events.emit('VenueModerationDecided', {
+      venueId: input.venueId,
+      businessId: result.businessId,
+      decision: input.decision,
+      status: result.status,
+      reason,
+    });
+
+    return { status: result.status };
   }
 
   async decideOffer(input: {
@@ -234,11 +254,13 @@ export class ModerationService {
         ? OnboardingService.assertRejectionReason(input.reason)
         : (input.reason ?? null);
 
-    return this.db.transaction(async (tx) => {
+    const result = await this.db.transaction(async (tx) => {
       const [offer] = await tx
         .select({
           id: schema.offers.id,
           status: schema.offers.status,
+          venueId: schema.offers.venueId,
+          businessId: schema.offers.businessId,
           venueStatus: schema.venues.status,
           publishedAt: schema.offers.publishedAt,
         })
@@ -283,8 +305,22 @@ export class ModerationService {
         metadata: { from: offer.status, to: target, reason },
       });
 
-      return { status: target };
+      return { status: target, venueId: offer.venueId, businessId: offer.businessId };
     });
+
+    // Émis après le commit — même raison que `decideVenue` juste au-dessus.
+    this.events.emit('OfferModerationDecided', {
+      offerId: input.offerId,
+      venueId: result.venueId,
+      businessId: result.businessId,
+      decision: input.decision,
+      status: result.status,
+      // Reflète exactement ce qui est écrit en base : `rejectedReason` n'est
+      // renseigné que sur REJECT, un motif de PAUSE n'étant pas persisté.
+      reason: input.decision === 'REJECT' ? reason : null,
+    });
+
+    return { status: result.status };
   }
 
   /**

@@ -60,4 +60,10 @@ export class AdminBrowseController {
   ) {
     return this.browse.payments(user, query as z.infer<typeof paymentsQuerySchema>);
   }
+
+  @Get('venues/incomplete')
+  @ApiOperation({ summary: 'Lieux inscrits dont le dossier reste incomplet, à relancer' })
+  incompleteVenues(@CurrentUser() user: AuthenticatedUser) {
+    return this.browse.incompleteVenues(user);
+  }
 }
