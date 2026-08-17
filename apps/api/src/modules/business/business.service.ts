@@ -4,6 +4,7 @@ import { money, zonedTimeToUtc, zonedDayKey, DEFAULT_TIME_ZONE } from '@try/util
 import type { Clock, CurrencyCode, IanaTimeZone } from '@try/utils';
 import { schema } from '@try/database';
 import type { Database } from '@try/database';
+import { vatCountryOf } from '@try/contracts';
 import type {
   BusinessBookingDto,
   BusinessMetricsDto,
@@ -21,6 +22,8 @@ import { ApiException } from '../../common/errors/api-exception.js';
 import { AuditService } from '../admin/audit.service.js';
 import { DomainEvents } from '../events/domain-events.js';
 import { toBusinessVenueDto } from './venue-dto.mapper.js';
+import { toBusinessDetailDto, type BusinessDetailDto } from './business-dto.mapper.js';
+import type { UpdateBusinessDto } from './update-business.schema.js';
 import { hasBusinessRole, type AuthenticatedUser } from '../../common/auth/current-user.js';
 
 @Injectable()
@@ -49,6 +52,145 @@ export class BusinessService {
         `user ${actor.id} lacks ${minimumRole} on business ${businessId}`,
       );
     }
+  }
+
+  /**
+   * L'établissement tel que son gérant doit le voir — l'interface doit
+   * pouvoir relire ce qu'elle vient d'écrire, en particulier la TVA sur
+   * l'écran de complétion (`updateBusiness`, ci-dessous).
+   */
+  async getBusiness(businessId: string): Promise<BusinessDetailDto> {
+    const [business] = await this.db
+      .select()
+      .from(schema.businesses)
+      .where(eq(schema.businesses.id, businessId))
+      .limit(1);
+
+    if (!business) throw ApiException.notFound('business', businessId);
+    return toBusinessDetailDto(business);
+  }
+
+  /**
+   * Met à jour les champs contractuels et de facturation d'un établissement :
+   * raison sociale, numéro de TVA, contact. Réservé à OWNER, pas MANAGER —
+   * voir le rapport de ce lot pour l'arbitrage : c'est une donnée
+   * contractuelle et de facturation, pas de l'exploitation courante.
+   *
+   * C'est l'endpoint qui manquait : sans lui, `vatNumber` ne pouvait jamais
+   * être enregistré après la création de l'établissement (facultatif à la
+   * création — voir `venue-submission.ts`), donc `missingRequirements`
+   * contenait *toujours* `VALID_VAT_NUMBER` et aucun dossier ne pouvait être
+   * soumis.
+   *
+   * Fusion `key in dto ? … : existing.key`, jamais `dto.key ?? existing.key`
+   * — le piège d'effacement de ce chantier, pour la troisième fois.
+   * `contactPhone: null` est une remise à zéro légitime que `??` confondrait
+   * avec « absent ».
+   */
+  async updateBusiness(input: {
+    actor: AuthenticatedUser;
+    businessId: string;
+    dto: UpdateBusinessDto;
+  }): Promise<BusinessDetailDto> {
+    this.assertMember(input.actor, input.businessId, 'OWNER');
+
+    const dto = input.dto;
+
+    // `countryCode` reste accepté par `updateBusinessSchema` pour pouvoir être
+    // refusé ici avec un message clair, plutôt que d'être silencieusement
+    // retiré par Zod — même traitement que `currency` dans
+    // `OnboardingService.updateOffer`. Le pays se déduit du numéro de TVA
+    // (`vatCountryOf`, plus bas), jamais du corps de la requête : Invariant 2,
+    // le client ne décide de rien qui compte.
+    if ('countryCode' in dto) {
+      throw new ApiException(
+        'VALIDATION_FAILED',
+        'Le code pays se déduit automatiquement du numéro de TVA et ne peut pas être envoyé directement.',
+        { countryCode: ['not editable'] },
+      );
+    }
+
+    const now = this.clock.now();
+
+    const result = await this.db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(schema.businesses)
+        .where(eq(schema.businesses.id, input.businessId))
+        .for('update')
+        .limit(1);
+
+      if (!existing) throw ApiException.notFound('business', input.businessId);
+
+      /**
+       * `vatNumber` est déjà normalisé et validé par le schéma (le transform
+       * de `createBusinessSchema`, réutilisé tel quel par
+       * `updateBusinessSchema`) : un numéro invalide n'atteint jamais ce
+       * point, il a déjà produit un 400 avec le message dans
+       * `details.vatNumber` au niveau du pipe de validation. Le pays se
+       * déduit de cette valeur déjà validée, jamais du corps de la requête.
+       *
+       * Une chaîne vide soumise (`vatNumber: ''`) traverse le schéma comme
+       * « présente mais transformée en `undefined` » — voir le commentaire de
+       * `vatNumberInputSchema` dans `@try/contracts` : « pas encore
+       * renseigné », pas « invalide ». Effacer un numéro déjà enregistré
+       * n'est pas un besoin de ce lot ; ce cas est donc traité comme une
+       * absence de changement, jamais comme une remise à zéro silencieuse.
+       */
+      let vatNumber = existing.vatNumber;
+      let countryCode = existing.countryCode;
+      if ('vatNumber' in dto && dto.vatNumber) {
+        vatNumber = dto.vatNumber;
+        countryCode = vatCountryOf(dto.vatNumber) ?? countryCode;
+      }
+
+      const [updated] = await tx
+        .update(schema.businesses)
+        .set({
+          legalName: 'legalName' in dto ? dto.legalName : existing.legalName,
+          vatNumber,
+          countryCode,
+          contactEmail: 'contactEmail' in dto ? dto.contactEmail : existing.contactEmail,
+          contactPhone: 'contactPhone' in dto ? (dto.contactPhone ?? null) : existing.contactPhone,
+          updatedAt: now,
+        })
+        .where(eq(schema.businesses.id, input.businessId))
+        .returning();
+
+      if (!updated) throw ApiException.notFound('business', input.businessId);
+
+      await this.audit.record(tx, {
+        actorId: input.actor.id,
+        actorType: 'BUSINESS_MEMBER',
+        action: 'business.update',
+        entityType: 'business',
+        entityId: input.businessId,
+        metadata: { fields: Object.keys(dto) },
+      });
+
+      const identityChanges = (['legalName', 'vatNumber'] as const)
+        .filter((field) => existing[field] !== updated[field])
+        .map((field) => ({ field, oldValue: existing[field], newValue: updated[field] }));
+
+      return { existing, updated, identityChanges };
+    });
+
+    // Émis après le commit, jamais dedans — même principe que
+    // `VenueIdentityChanged` (onboarding.service.ts, `updateVenue`) : un
+    // abonné ne doit jamais apprendre un changement qu'un rollback peut
+    // encore annuler. Seulement sur un établissement déjà `ACTIVE` — voir
+    // `BusinessIdentityChanged` dans `domain-events.ts` : un établissement
+    // encore `PENDING_APPROVAL` est simplement en train de compléter son
+    // dossier, pas de modifier une fiche déjà en ligne.
+    if (result.identityChanges.length > 0 && result.existing.status === 'ACTIVE') {
+      this.events.emit('BusinessIdentityChanged', {
+        businessId: input.businessId,
+        actorId: input.actor.id,
+        changes: result.identityChanges,
+      });
+    }
+
+    return toBusinessDetailDto(result.updated);
   }
 
   /**

@@ -7,6 +7,7 @@ import type {
   BusinessMetricsDto,
   BusinessOfferDto,
   BusinessSlotDto,
+  BusinessStatus,
   BusinessVenueDto,
   CheckInResultDto,
   DiscoveryHomeDto,
@@ -21,6 +22,36 @@ import type {
   ViewerDto,
 } from '@try/contracts';
 import type { ApiClient } from './http.js';
+
+/**
+ * Réponse de `GET`/`PATCH /v1/businesses/:businessId`.
+ *
+ * Pas dans `@try/contracts` : aucun `BusinessDetailDto` n'y existe encore
+ * pour ce lot (signalé à `contracts-guardian`, pas créé sur place). Cette
+ * forme doit rester synchronisée à la main avec
+ * `apps/api/src/modules/business/business-dto.mapper.ts` tant que ça dure —
+ * contrairement aux DTO ci-dessus, un changement de forme côté API ne fera
+ * pas échouer la compilation ici.
+ */
+export interface BusinessDetailDto {
+  id: string;
+  name: string;
+  status: BusinessStatus;
+  legalName: string | null;
+  vatNumber: string | null;
+  countryCode: string;
+  contactEmail: string;
+  contactPhone: string | null;
+  createdAt: string;
+}
+
+/** Corps du `PATCH` — voir `apps/api/src/modules/business/update-business.schema.ts` pour les règles. */
+export interface UpdateBusinessInput {
+  legalName?: string;
+  vatNumber?: string;
+  contactEmail?: string;
+  contactPhone?: string | null;
+}
 
 /**
  * Typed endpoint surface.
@@ -131,6 +162,12 @@ export function createEndpoints(client: ApiClient) {
     },
 
     business: {
+      get: (businessId: string) =>
+        client.get<BusinessDetailDto>(`/v1/businesses/${businessId}`),
+
+      update: (businessId: string, input: UpdateBusinessInput) =>
+        client.patch<BusinessDetailDto>(`/v1/businesses/${businessId}`, input),
+
       metrics: (input: { businessId: string; venueId?: string; from: string; to: string }) =>
         client.get<BusinessMetricsDto>(`/v1/businesses/${input.businessId}/metrics`, {
           query: { venueId: input.venueId, from: input.from, to: input.to },

@@ -87,6 +87,24 @@ export interface DomainEventMap {
     changes: readonly { field: string; oldValue: unknown; newValue: unknown }[];
   };
   /**
+   * `legalName` ou `vatNumber` vient de changer sur un établissement déjà
+   * `ACTIVE` — l'analogue de `VenueIdentityChanged` côté établissement plutôt
+   * que côté lieu. Il n'existe pas de classification `FieldClass` pour
+   * `businesses` comme `editable-fields.ts` en a une pour `venues`/`offers` :
+   * `BusinessService.updateBusiness` décide seul que ces deux champs sont
+   * ceux qui comptent pour cette alerte — `contactEmail`/`contactPhone` n'en
+   * déclenchent pas, exploitation courante plutôt qu'identité contractuelle.
+   * L'écriture est déjà passée ; ceci est une notification, jamais une
+   * décision. Émis par `BusinessService.updateBusiness`, après commit.
+   */
+  BusinessIdentityChanged: {
+    businessId: string;
+    /** Qui a fait le changement — un membre OWNER du gérant, jamais le système. */
+    actorId: string;
+    /** Uniquement `legalName`/`vatNumber` réellement modifiés dans cette requête. */
+    changes: readonly { field: string; oldValue: unknown; newValue: unknown }[];
+  };
+  /**
    * Décision de modération admin sur un lieu — approbation, refus, suspension,
    * réintégration. Émis par `ModerationService.decideVenue` (lot 2), pas ici :
    * ce fichier ne fait que déclarer la forme que le lot 2 doit respecter.

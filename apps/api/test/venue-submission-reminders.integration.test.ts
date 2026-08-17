@@ -50,7 +50,22 @@ describeIfDatabase('relances J+1 / J+3 de dossier incomplet', () => {
 
   const cleanups: (() => Promise<void>)[] = [];
   afterEach(async () => {
-    while (cleanups.length > 0) await cleanups.pop()!();
+    // Best-effort : une étape qui échoue (contrainte inattendue, ligne déjà
+    // repartie) ne doit pas empêcher les suivantes de s'exécuter. Avant ce
+    // correctif, une seule étape en échec laissait toutes les précédentes
+    // (business_members, businesses, users) orphelines dans `try_dev` — la
+    // base partagée par le développement et les tests d'intégration (voir
+    // `reference_test_integration_no_dedicated_db`) — au point de faire
+    // apparaître un gérant fantôme dans le tableau de bord.
+    while (cleanups.length > 0) {
+      const cleanup = cleanups.pop()!;
+      try {
+        await cleanup();
+      } catch (error) {
+        // eslint-disable-next-line no-console -- visibilité en test seulement, jamais en prod
+        console.error('venue-submission-reminders: cleanup step failed, continuing', error);
+      }
+    }
   });
 
   function buildService(now: Date, transport: RecordingTransport): ReminderService {

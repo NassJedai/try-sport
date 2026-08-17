@@ -18,6 +18,8 @@ import type {
 import { CurrentUser, type AuthenticatedUser } from '../../common/auth/current-user.js';
 import { zodBody, zodQuery, ZodValidationPipe } from '../../common/zod-validation.pipe.js';
 import { BusinessService } from './business.service.js';
+import { updateBusinessSchema } from './update-business.schema.js';
+import type { BusinessDetailDto } from './business-dto.mapper.js';
 
 /**
  * Business-facing endpoints.
@@ -30,6 +32,33 @@ import { BusinessService } from './business.service.js';
 @Controller({ path: 'businesses', version: '1' })
 export class BusinessController {
   constructor(private readonly business: BusinessService) {}
+
+  @Get(':businessId')
+  @ApiOperation({ summary: "L'établissement tel que son gérant doit le voir — raison sociale, TVA, contact" })
+  getBusiness(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('businessId', new ZodValidationPipe(uuidSchema)) businessId: string,
+  ): Promise<BusinessDetailDto> {
+    this.business.assertMember(user, businessId, 'STAFF');
+    return this.business.getBusiness(businessId);
+  }
+
+  @Patch(':businessId')
+  @ApiOperation({
+    summary:
+      'Met à jour la raison sociale, le numéro de TVA et le contact — réservé au propriétaire',
+  })
+  updateBusiness(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('businessId', new ZodValidationPipe(uuidSchema)) businessId: string,
+    @Body(zodBody(updateBusinessSchema)) body: unknown,
+  ): Promise<BusinessDetailDto> {
+    return this.business.updateBusiness({
+      actor: user,
+      businessId,
+      dto: body as Parameters<BusinessService['updateBusiness']>[0]['dto'],
+    });
+  }
 
   @Get(':businessId/metrics')
   @ApiOperation({ summary: 'Trial → check-in → conversion funnel for a period' })

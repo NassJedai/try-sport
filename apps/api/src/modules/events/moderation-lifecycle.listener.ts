@@ -27,6 +27,12 @@ const IDENTITY_FIELD_LABELS_FR: Record<string, string> = {
   timeZone: 'Fuseau horaire',
 };
 
+/** Les deux champs `BusinessIdentityChanged` peut porter — voir `domain-events.ts`. */
+const BUSINESS_IDENTITY_FIELD_LABELS_FR: Record<string, string> = {
+  legalName: 'Raison sociale',
+  vatNumber: 'Numéro de TVA',
+};
+
 /**
  * Effets de bord du cycle de modération et de l'édition libre des lieux en
  * ligne.
@@ -56,6 +62,10 @@ export class ModerationLifecycleListener implements OnModuleInit {
 
     this.events.on('VenueIdentityChanged', async (payload) => {
       await this.alertAdminOfIdentityChange(payload);
+    });
+
+    this.events.on('BusinessIdentityChanged', async (payload) => {
+      await this.alertAdminOfBusinessIdentityChange(payload);
     });
   }
 
@@ -218,6 +228,57 @@ export class ModerationLifecycleListener implements OnModuleInit {
     this.logger.info(
       { venueId: payload.venueId, admins: admins.length, fields: payload.changes.map((c) => c.field) },
       'venue identity change alerted to admins',
+    );
+  }
+
+  /**
+   * Même raisonnement que `alertAdminOfIdentityChange` ci-dessus, pour un
+   * établissement plutôt qu'un lieu : raison sociale et numéro de TVA sont des
+   * données contractuelles, `BusinessService.updateBusiness` les a déjà en
+   * main au moment d'émettre (voir `BusinessIdentityChanged` dans
+   * `domain-events.ts`), donc pas de requête supplémentaire ici pour les deux
+   * valeurs.
+   */
+  private async alertAdminOfBusinessIdentityChange(
+    payload: DomainEventMap['BusinessIdentityChanged'],
+  ): Promise<void> {
+    const [business] = await this.db
+      .select({ name: schema.businesses.name })
+      .from(schema.businesses)
+      .where(eq(schema.businesses.id, payload.businessId))
+      .limit(1);
+    if (!business) return;
+
+    const changes = payload.changes
+      .map((change) => {
+        const label = BUSINESS_IDENTITY_FIELD_LABELS_FR[change.field] ?? change.field;
+        return `${label} : « ${change.oldValue ?? '—'} » → « ${change.newValue ?? '—'} »`;
+      })
+      .join('\n');
+
+    const admins = await this.db
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(inArray(schema.users.role, ['ADMIN', 'SUPER_ADMIN']));
+    if (admins.length === 0) return;
+
+    await this.db.insert(schema.notifications).values(
+      admins.map((admin) => ({
+        userId: admin.id,
+        type: 'BUSINESS_IDENTITY_CHANGED',
+        title: `Modification de fiche établissement : ${business.name}`,
+        body: changes,
+        deepLink: null,
+      })),
+    );
+
+    this.logger.info(
+      {
+        businessId: payload.businessId,
+        admins: admins.length,
+        fields: payload.changes.map((c) => c.field),
+      },
+      'business identity change alerted to admins',
     );
   }
 
