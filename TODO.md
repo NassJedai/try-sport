@@ -290,6 +290,37 @@ interdit les SDK **fournisseur** dans le domaine, pas la cryptographie génériq
 
 ---
 
+## Découvert le 17 août 2026, pendant le chantier « inscription autonome »
+
+### 1. `drizzle-kit generate` produit une migration destructrice
+
+La chaîne de snapshots est cassée **depuis `0001`** : `generate` ne produit pas
+un delta, il rejoue **tout l'historique depuis `0000`**. Personne ne l'avait
+remarqué parce que toutes les migrations depuis ont été écrites à la main.
+
+Le piège est silencieux et sérieux : quelqu'un finira par lancer `generate`,
+obtenir un fichier plausible, et l'appliquer. **Continuer à écrire les migrations
+à la main** en attendant, comme le reste du dépôt le fait déjà. Réparer la chaîne
+demande de régénérer les snapshots depuis un état connu — chantier à part.
+
+### 2. `BusinessDetailDto` vit en double sans garantie croisée
+
+`apps/api/src/modules/business/business-dto.mapper.ts` et
+`packages/api-client/src/endpoints.ts` décrivent la même forme, **chacun de son
+côté**. Aucune compilation ne les compare : le jour où l'un change, l'autre ment
+en silence.
+
+C'est la même famille que le trigger SQL retiré ce jour-là — une seconde source
+de vérité non protégée par le typage. `updateBusinessSchema` est dans le même
+cas, construit côté API à partir des briques de `contracts` plutôt que canonisé.
+
+À trancher par `contracts-guardian` : faut-il faire monter `updateBusinessSchema`
+et `businessDetailSchema` dans `packages/contracts` ? Mon avis : oui pour le
+second, qui traverse la frontière client-serveur ; le premier est discutable
+puisqu'il ne sert qu'à l'API.
+
+---
+
 ## Découvert le 16 août 2026, en corrigeant le registre de remboursements
 
 Quatre dettes mises au jour par trois passages de relecture successifs sur
