@@ -7,6 +7,7 @@ import {
   imageVariantsSchema,
   isoDateTimeSchema,
   moneySchema,
+  partialUpdateOf,
   uuidSchema,
 } from './common.js';
 import { offerBadgeSchema } from './discovery.js';
@@ -173,5 +174,29 @@ export const createOfferSchema = z.object({
 });
 export type CreateOfferDto = z.infer<typeof createOfferSchema>;
 
-export const updateOfferSchema = createOfferSchema.partial().omit({ venueId: true });
+/**
+ * Mise à jour partielle d'une offre — une clé absente veut dire « ne change rien ».
+ *
+ * `venueId` est retiré : une offre ne se déplace pas d'un lieu à l'autre. Elle
+ * porte les statistiques de conversion de ce lieu, ses créneaux et ses
+ * réservations ; la déplacer réécrirait l'histoire. Créer une offre sur l'autre
+ * lieu et archiver celle-ci est la seule voie.
+ *
+ * `partialUpdateOf` et non `.partial()` : vérifié, `.partial()` laisse les
+ * `.default()` actifs, donc corriger le seul titre arrivait au service avec
+ * `referencePriceAmount: null`, `skillLevel: 'ALL_LEVELS'`,
+ * `cancellationPolicy: 'STANDARD'`, `trialRule: 'ONE_TRIAL_PER_VENUE'`,
+ * `currency: 'EUR'`, `conditions: null` et trois tableaux vides comme valeurs
+ * *présentes*. Le prix barré et la politique d'annulation disparaissaient sur
+ * une correction de faute de frappe. Voir `partialUpdateOf` dans `common.ts`.
+ *
+ * `referencePriceAmount: null` et `conditions: null` restent exprimables — ce
+ * sont des remises à zéro légitimes —, donc le service doit distinguer absent de
+ * `null` : `key in dto ? dto.key : existing.key`, jamais `??`. Les montants
+ * restent en unités mineures entières, ici comme partout.
+ *
+ * Ce que ce schéma ne dit pas : *quel* champ est modifiable *dans quel statut*.
+ * C'est `editable-fields.ts` — et le prix y est un champ modéré.
+ */
+export const updateOfferSchema = partialUpdateOf(createOfferSchema.omit({ venueId: true }));
 export type UpdateOfferDto = z.infer<typeof updateOfferSchema>;

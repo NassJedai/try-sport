@@ -1,19 +1,71 @@
 import { z } from 'zod';
-import { BUSINESS_ROLES, LEAD_STATUSES, OFFER_STATUSES, RESERVATION_STATUSES, SLOT_STATUSES, SUPPORTED_LOCALES } from '../enums.js';
+import {
+  BUSINESS_ROLES,
+  LEAD_STATUSES,
+  OFFER_STATUSES,
+  RESERVATION_STATUSES,
+  SLOT_STATUSES,
+  SUPPORTED_LOCALES,
+  VENUE_STATUSES,
+} from '../enums.js';
+import { validateVatNumber, VAT_NUMBER_MAX_INPUT_LENGTH } from '../vat-number.js';
+import {
+  VENUE_DESCRIPTION_MIN_LENGTH,
+  VENUE_SUBMISSION_REQUIREMENTS,
+} from '../venue-submission.js';
 import {
   cursorPageSchema,
   cursorPaginationSchema,
   isoDateTimeSchema,
   moneySchema,
+  partialUpdateOf,
   uuidSchema,
 } from './common.js';
 import { openingHoursSchema } from './offers.js';
 
+/**
+ * Le numéro de TVA, quand il est fourni : normalisé et vérifié pour de bon.
+ *
+ * Il reste **facultatif à la création** — un gérant s'inscrit en cinq minutes et
+ * complète ensuite — mais il est exigé pour soumettre le lieu à modération
+ * (`venue-submission.ts`). D'où la répartition : schéma de création permissif,
+ * porte de soumission stricte.
+ *
+ * En revanche, dès qu'une valeur est saisie elle est validée structure *et* clé
+ * de contrôle, pour les trois pays supportés (BE, FR, ES). L'ancien commentaire
+ * de ce champ annonçait « validated loosely here, strictly on approval » : la
+ * validation stricte n'existait nulle part, et un numéro inventé pouvait
+ * traverser jusqu'à la facture.
+ *
+ * Le préfixe du numéro fait foi sur le pays, pas `countryCode` : celui-ci vaut
+ * 'BE' par défaut et l'assistant d'inscription ne l'envoie pas, donc valider la
+ * TVA contre lui refuserait un numéro français légitime. Un défaut n'est pas une
+ * déclaration. Voir `vatCountryOf()` — côté API, `countryCode` doit se déduire
+ * du numéro, jamais du corps de la requête.
+ */
+const vatNumberInputSchema = z
+  .string()
+  .trim()
+  .max(VAT_NUMBER_MAX_INPUT_LENGTH)
+  .transform((raw, ctx): string | undefined => {
+    // Champ laissé vide : « pas encore renseigné », pas « invalide ». Un
+    // formulaire qui affiche « obligatoire » sur un champ qu'on vient
+    // délibérément de rendre facultatif est la friction qu'on cherche à retirer.
+    if (raw.trim().length === 0) return undefined;
+
+    const result = validateVatNumber(raw);
+    if (!result.ok) {
+      // Le message part tel quel dans `details.vatNumber` de la réponse d'erreur.
+      ctx.addIssue({ code: 'custom', message: result.message });
+      return z.NEVER;
+    }
+    return result.value;
+  });
+
 export const createBusinessSchema = z.object({
   name: z.string().trim().min(2).max(120),
-  legalName: z.string().trim().max(160).optional(),
-  /** Belgian VAT (BE0123456789) validated loosely here, strictly on approval. */
-  vatNumber: z.string().trim().max(30).optional(),
+  legalName: z.string().trim().min(2).max(160).optional(),
+  vatNumber: vatNumberInputSchema.optional(),
   contactEmail: z.email(),
   contactPhone: z.string().trim().max(30).optional(),
   countryCode: z.string().length(2).default('BE'),
@@ -22,7 +74,13 @@ export type CreateBusinessDto = z.infer<typeof createBusinessSchema>;
 
 export const createVenueSchema = z.object({
   name: z.string().trim().min(2).max(120),
-  description: z.string().trim().max(4000).optional(),
+  /**
+   * Facultative ici, exigée pour soumettre à modération — même logique que la
+   * TVA. Le plancher de longueur est celui de `venue-submission.ts` : une
+   * description enregistrable mais trop courte pour la soumission serait
+   * incompréhensible pour le gérant qui l'a écrite.
+   */
+  description: z.string().trim().min(VENUE_DESCRIPTION_MIN_LENGTH).max(4000).optional(),
   addressLine: z.string().trim().min(4).max(200),
   postalCode: z.string().trim().min(2).max(12),
   cityId: uuidSchema,
@@ -40,7 +98,34 @@ export const createVenueSchema = z.object({
 });
 export type CreateVenueDto = z.infer<typeof createVenueSchema>;
 
-export const updateVenueSchema = createVenueSchema.partial();
+/**
+ * Mise à jour partielle d'un lieu — une clé absente veut dire « ne change rien ».
+ *
+ * Trois choses que l'implémenteur doit savoir avant d'écrire le service :
+ *
+ * 1. **`partialUpdateOf` et non `.partial()`.** Voir le commentaire de
+ *    `partialUpdateOf` dans `common.ts` : `.partial()` laisse les `.default()`
+ *    actifs, donc un simple renommage arrivait au service avec `amenities: []`,
+ *    `openingHours: []`, `languages: ['fr']` et `timeZone: 'Europe/Brussels'`
+ *    comme valeurs *présentes*. Un `set({ ...dto })` effaçait les équipements et
+ *    les horaires de la salle. Ici, absent reste absent.
+ *
+ * 2. **`categoryIds: []` est refusé par le schéma**, pas laissé au service : le
+ *    `.min(1)` de la création survit à la mise à jour partielle. Un lieu a donc
+ *    toujours au moins une catégorie et « tout vider » n'est pas exprimable —
+ *    même règle qu'à la création. Idem `languages: []`.
+ *
+ * 3. **Le service doit tout de même distinguer absent de vide** pour les champs
+ *    qui acceptent le vide : `amenities: []` et `openingHours: []` sont des
+ *    demandes légitimes de remise à zéro, `undefined` ne l'est pas. La règle est
+ *    donc `key in dto ? dto.key : existing.key`, jamais `dto.key ?? existing.key`
+ *    — ce dernier confondrait « efface » et « ne touche pas » sur les champs
+ *    nullables.
+ *
+ * Ce que ce schéma ne dit pas : *qui* peut changer *quoi* et *dans quel statut*.
+ * C'est `editable-fields.ts`, et le service doit poser les deux questions.
+ */
+export const updateVenueSchema = partialUpdateOf(createVenueSchema);
 export type UpdateVenueDto = z.infer<typeof updateVenueSchema>;
 
 /* ---------------------------------------------------------------------------
@@ -195,6 +280,78 @@ export const businessOfferSchema = z.object({
   upcomingSlots: z.int().nonnegative(),
 });
 export type BusinessOfferDto = z.infer<typeof businessOfferSchema>;
+
+/**
+ * Un lieu vu par son propriétaire.
+ *
+ * Réponse de `GET /v1/businesses/:businessId/venues`, l'endpoint qui manque
+ * aujourd'hui. Sans lui, un lieu `DRAFT` sans offre est **irrécupérable** : la
+ * liste des offres est la seule vue existante et un lieu sans offre n'y produit
+ * aucune ligne. Le gérant qui ferme l'onglet au milieu de l'assistant ne
+ * retrouve donc jamais son lieu, et en recrée un.
+ *
+ * Trois blocs, trois raisons :
+ *
+ * - **l'état du dossier** — `status`, `rejectedReason`, `missingRequirements`,
+ *   `offerCount`, `imageCount` : de quoi dire au gérant pourquoi il ne peut pas
+ *   soumettre *avant* qu'il clique, et à l'admin ce qui manque à une salle
+ *   inscrite mais incomplète ;
+ * - **l'identité** — nom, adresse, catégories : ce que la modération a examiné ;
+ * - **le reste des champs modifiables** — description, coordonnées, contact,
+ *   équipements, horaires. Ce bloc n'est pas du confort : l'écran de correction
+ *   après refus et l'écran de complétion font des mises à jour *partielles*, et
+ *   un formulaire qui ne connaît pas la valeur actuelle d'un champ est un chemin
+ *   d'effacement de données. Tout ce qui est éditable est donc lisible.
+ *
+ * Ce n'est pas la fiche publique (`venueDetailSchema`) : ni slug, ni note, ni
+ * URL d'image — et à l'inverse le motif de refus, que le client ne voit jamais.
+ */
+export const businessVenueSchema = z.object({
+  id: uuidSchema,
+  name: z.string(),
+  status: z.enum(VENUE_STATUSES),
+  /** Transmis tel quel au gérant : c'est ce qu'il doit corriger. */
+  rejectedReason: z.string().nullable(),
+
+  addressLine: z.string(),
+  postalCode: z.string(),
+  cityId: uuidSchema,
+  districtId: uuidSchema.nullable(),
+  categoryIds: z.array(uuidSchema),
+
+  /** `submitVenue` refuse un lieu sans offre : autant le dire avant le clic. */
+  offerCount: z.int().nonnegative(),
+  /** Le récapitulatif doit pouvoir afficher « aucune photo ». */
+  imageCount: z.int().nonnegative(),
+  /**
+   * Ce qui manque pour soumettre, résolu par le serveur.
+   *
+   * Vide veut dire « prêt à soumettre ». La liste est calculée par
+   * `missingVenueSubmissionRequirements()` et non déduite des compteurs
+   * ci-dessus : la TVA vit sur l'établissement, qu'un frontend n'a pas
+   * forcément sous la main, et le client ne décide de rien qui compte.
+   */
+  missingRequirements: z.array(z.enum(VENUE_SUBMISSION_REQUIREMENTS)),
+
+  description: z.string().nullable(),
+  latitude: z.number(),
+  longitude: z.number(),
+  timeZone: z.string(),
+  phone: z.string().nullable(),
+  /**
+   * Volontairement `string` et non `url` : la colonne est un `text` libre et une
+   * valeur héritée mal formée ne doit pas faire échouer le tableau de bord de
+   * son propriétaire. La validation d'URL a sa place à l'écriture.
+   */
+  website: z.string().nullable(),
+  instagram: z.string().nullable(),
+  amenities: z.array(z.string()),
+  languages: z.array(z.enum(SUPPORTED_LOCALES)),
+  openingHours: openingHoursSchema,
+
+  createdAt: isoDateTimeSchema,
+});
+export type BusinessVenueDto = z.infer<typeof businessVenueSchema>;
 
 /** Un créneau du planning, avec son remplissage. */
 export const businessSlotSchema = z.object({
