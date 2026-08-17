@@ -145,6 +145,151 @@ L'atomicité du chemin d'annulation n'est réellement exercée que par un seul t
 
 ---
 
+## V1.1 — Connexion sociale : Apple + Google (Facebook reporté)
+
+Chantier planifié le 17 août 2026, non commencé. Périmètre arbitré par Nassim :
+**e-mail (OTP existant) + Google + Apple**. Facebook écarté du lancement.
+
+**Apple n'est pas une option.** Dès qu'un fournisseur social tiers apparaît dans
+une app iOS, Apple impose *Sign in with Apple* comme option équivalente. Le
+périmètre n'est donc pas « deux fournisseurs au choix » mais **« Google implique
+Apple »**.
+
+### Trois faits vérifiés qui changent la forme du chantier
+
+1. **La table d'identités existe déjà, et elle est vide.** `auth_identities`
+   (`packages/database/src/schema/identity.ts:102-121`, migrée en
+   `0000_init.sql:56-62`) porte le bon index unique sur
+   `(provider, provider_account_id)` et le bon commentaire — « the provider's
+   stable subject claim, never the email ». **Aucun code ne la lit ni ne
+   l'écrit** : la seule occurrence est un `TRUNCATE` dans le seed. Vérifié en
+   base : 0 ligne, 5 colonnes. `ADR-003:36-38` annonçait déjà cette voie. Il
+   reste à l'exécuter, pas à la décider.
+2. **Le coût caché n'est pas le serveur, c'est le premier build natif.**
+   `apps/mobile` n'a pas de `eas.json`, aucun plugin natif d'authentification, et
+   son client de dev est câblé pour Expo Go — où les SDK Apple et Google **ne
+   fonctionnent pas**. Il faut un build de développement EAS, ce que le projet
+   n'a jamais fait. C'est le lot dont l'estimation est la moins fiable.
+3. **Un blocage App Store indépendant du sujet, sur le même chemin critique.**
+   `users.anonymized_at` (`identity.ts:31`) n'est écrit par **aucun** code —
+   vérifié : la colonne n'apparaît que dans sa déclaration. Il n'existe aucun
+   endpoint de suppression de compte (les seuls `@Delete` sont favoris et
+   images). Apple l'exige (règle 5.1.1(v)) dès qu'une app permet de créer un
+   compte. **Publier sans ce lot expose à un rejet.** 2 à 3 jours.
+
+### Rattachement, pas fusion
+
+Distinction à tenir : **rattacher** une nouvelle porte d'entrée à un compte
+existant (une ligne dans `auth_identities`, réversible) n'est pas **fusionner**
+deux comptes déjà peuplés (réécrire `user_id` sur réservations, paiements,
+essais, prospects, adhésions — et arbitrer les conflits).
+
+**La V1.1 fait du rattachement.** La fusion est un chantier à part, à outiller
+quand un cas réel se présente. Ce qu'on peut faire dès maintenant, c'est éviter
+de fabriquer les doublons — très différent de savoir les réparer.
+
+### Les quatre gardes contre la prise de contrôle de compte
+
+Sans elles, un fournisseur qui affirme une adresse non vérifiée permet de
+s'emparer d'un compte — et si la victime est gérante, l'attaquant hérite de ses
+adhésions dans le JWT, donc du **fichier prospects du partenaire**.
+
+1. Pas de vérification du fournisseur, pas de rattachement. L'e-mail affirmé est
+   stocké mais ne sert **jamais** de clé de recherche.
+2. **Un compte avec un rôle non-`USER` ou une adhésion `business_members` ne se
+   rattache jamais automatiquement** — code par e-mail exigé.
+3. Nonce à usage unique émis par le serveur, stocké haché, brûlé à la
+   consommation — le mécanisme d'`otp_codes`, déjà éprouvé.
+4. Chaque création, rattachement et refus passe par `AuditService.record`.
+
+Le contrat `oauthLoginSchema` (`packages/contracts/src/schemas/auth.ts:37-44`)
+existe déjà et n'est consommé par aucun endpoint. Bon squelette — il porte déjà
+`provider: ['GOOGLE','APPLE']` et le piège du nom Apple — mais **il manque le
+nonce** (lacune la plus sérieuse : sans lui un jeton capté est rejouable),
+l'`attribution` et la `locale`.
+
+### Deux cas à assumer, pas à résoudre
+
+- **Relais Apple.** « Masquer mon adresse » donne une adresse
+  `privaterelay.appleid.com` routable. Le compte fonctionne — mais le domaine
+  d'envoi doit être déclaré chez Apple, SPF compris. **Symptôme d'oubli : le
+  client ne reçoit pas son code de check-in, sans aucune erreur côté API.**
+- **Doublon inévitable.** Une personne inscrite en OTP qui revient par Apple en
+  masquant son adresse crée un second compte. Rien ne permet de les relier.
+  Remède : le proposer à l'écran (« tu as déjà un compte ? »), pas le découvrir
+  au support.
+
+Décision tranchée : **`users.email` reste `NOT NULL`**, et un compte social sans
+e-mail utilisable est refusé. Cinq chemins lisent cette colonne sans envisager le
+nul, et `viewerSchema.email` est obligatoire — le rendre nullable serait un
+changement de contrat public sur les quatre apps.
+
+### Estimation
+
+Minimum viable **12 à 15 jours** de développement : socle serveur agnostique
+(3–4 j, testable avec un adaptateur factice **avant** toute réponse d'Apple),
+premier build natif (2–3 j, estimation la moins fiable), Google mobile (1,5–2 j),
+Apple mobile (1,5–2 j), écran de connexion (1,5–2 j), durcissement et tests
+(2 j). Puis le web (1,5–2 j) — excellent rapport qualité-prix, il réutilise le
+même endpoint. Plus la suppression de compte (2–3 j), obligatoire pour publier.
+
+**Il n'y a pas de plus petit lot** : Google seul sur iOS est interdit, Apple seul
+n'apporte presque rien sur un marché belge majoritairement Android, et sans les
+gardes ci-dessus on ouvre une voie de prise de contrôle.
+
+**Chemin critique administratif :** compte Apple Developer, ~99 €/an. En
+**individuel** : actif en 24–48 h. En **société** : exige un numéro D-U-N-S,
+5 jours ouvrés à 2 semaines, pendant lesquels rien n'avance — ni Apple, ni le
+build iOS, ni Google Android (qui attend l'empreinte SHA-1 du build).
+
+### Pourquoi Facebook est reporté — et ce que ça coûte plus tard
+
+Raison technique autant que budgétaire : Google et Apple émettent un **jeton
+d'identité signé**, vérifiable hors ligne contre un JWKS en cache — leur panne ne
+nous touche pas. Facebook émet un **jeton d'accès opaque**, à échanger contre
+l'API de Meta **à chaque connexion** : un incident chez eux devient un incident
+chez nous.
+
+Vérifié : concevoir pour deux plutôt que trois **ne ferme aucune porte**. La
+table, les règles de rattachement et le port sont génériques ; Facebook entrerait
+comme fournisseur « non fiable pour l'e-mail », donc automatiquement dans la
+branche « code par e-mail obligatoire ». **Une seule précaution, gratuite, à
+prendre maintenant** : nommer le champ du contrat de façon neutre (`credential`
+plutôt que `idToken`), ou en union discriminée sur `provider`. Avec elle, ajouter
+Facebook coûte 3–4 j ; sans elle, 0,5–1 j de plus **et** un changement de contrat
+public propagé aux quatre apps.
+
+### Décisions en attente de Nassim
+
+1. Compte Apple en **individuel** plutôt qu'en société, pour démarrer en 48 h ? →
+   recommandé **oui** (le D-U-N-S bloque tout le reste ; transfert possible après)
+2. Rattachement automatique sur e-mail vérifié par le fournisseur ? → recommandé
+   **oui pour un client ordinaire, non pour un gérant ou un admin**
+3. Compte social sans e-mail utilisable refusé ? → recommandé **oui**
+4. Assumer le doublon du relais Apple ? → recommandé **oui**, en le proposant à
+   l'écran
+5. V1.1 limitée au rattachement, sans outil de fusion d'historiques ? → recommandé
+   **oui**
+6. Google sur les tableaux de bord web dans le même chantier ? → recommandé
+   **oui** (1,5 j, même endpoint, Apple non obligatoire sur le web)
+
+### Note d'architecture
+
+Le port `IdentityProvider` doit rendre une **identité vérifiée** dans notre
+vocabulaire (sujet opaque, e-mail affirmé, vérifié oui/non, relais oui/non, nom),
+jamais un jeton — modèle exact de `payment-provider.ts`. Les SDK natifs mobiles
+sont inévitables mais `apps/mobile` **n'est pas le domaine** : l'invariant 5
+protège `apps/api` et `packages/*`. Formulation retenue : **le SDK natif produit
+une preuve, jamais une décision.**
+
+Exception assumée à la logique de `token.service.ts:35-42` (qui explique pourquoi
+le projet écrit son propre HS256) : ici on vérifie les jetons **de quelqu'un
+d'autre**, avec RS256 imposé, rotation de clés et sélection par `kid`. La
+bibliothèque `jose` est recommandée, confinée aux deux adaptateurs. L'invariant 5
+interdit les SDK **fournisseur** dans le domaine, pas la cryptographie générique.
+
+---
+
 ## Découvert le 16 août 2026, en corrigeant le registre de remboursements
 
 Quatre dettes mises au jour par trois passages de relecture successifs sur
