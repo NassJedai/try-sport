@@ -31,13 +31,37 @@ export const verifyOtpSchema = z.object({
 export type VerifyOtpDto = z.infer<typeof verifyOtpSchema>;
 
 /**
- * Social login. The client sends the provider's identity token; the API verifies
- * it against the provider's JWKS server-side. A client-decoded token is never trusted.
+ * Connexion sociale. Le client transmet la preuve délivrée par le fournisseur ;
+ * le serveur la vérifie lui-même. Un jeton décodé côté client n'est jamais cru —
+ * c'est le serveur qui résout l'identité, comme il résout le prix.
+ *
+ * **`credential` est neutre exprès. Ne pas le « corriger » en `idToken`.**
+ *
+ * Le périmètre arbitré est Apple + Google, et tous deux émettent un jeton
+ * d'identité signé, vérifiable hors ligne contre un JWKS. Mais Facebook —
+ * reporté, pas exclu — émet un jeton d'accès *opaque*, qu'il faut échanger
+ * contre l'API de Meta. `idToken` ne nommerait donc que l'un des deux mécanismes,
+ * et le champ mentirait le jour où le second arrive. Renommer un champ de contrat
+ * public coûte alors une propagation dans les quatre applications ; le nommer
+ * juste maintenant, alors qu'aucun endpoint ne le consomme, ne coûte rien.
+ *
+ * Volontairement **plat plutôt qu'union discriminée sur `provider`** : les deux
+ * branches d'aujourd'hui seraient structurellement identiques, donc l'union
+ * n'ajouterait qu'un rétrécissement de type à faire chez l'appelant, sans porter
+ * la moindre information. Elle deviendra le bon outil le jour où la *forme* de la
+ * requête diverge réellement selon le fournisseur — un `nonce`, une URL de
+ * redirection, un secret d'échange —, pas le jour où un fournisseur s'ajoute.
+ *
+ * Attention pour l'implémenteur : `packages/logger` masque `idToken` dans ses
+ * `REDACTED_PATHS` et ne connaît pas `credential`. Ajouter `credential` et
+ * `*.credential` à cette liste fait partie du branchement de l'endpoint, sinon un
+ * corps de requête journalisé livre la preuve d'identité en clair.
  */
 export const oauthLoginSchema = z.object({
   provider: z.enum(['GOOGLE', 'APPLE']),
-  idToken: z.string().min(20).max(8192),
-  /** Apple only returns the name on the very first authorisation. */
+  /** Jeton d'identité signé (Google, Apple) ou jeton d'accès opaque à échanger. */
+  credential: z.string().min(20).max(8192),
+  /** Apple ne renvoie le nom qu'à la toute première autorisation. */
   firstName: z.string().max(80).optional(),
   lastName: z.string().max(80).optional(),
 });

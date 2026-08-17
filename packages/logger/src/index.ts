@@ -17,6 +17,11 @@ const REDACTED_PATHS = [
   'accessToken',
   'refreshToken',
   'idToken',
+  // La preuve d'identité renvoyée par Google ou Apple, telle que nommée par
+  // `oauthLoginSchema`. Masquée avant que l'endpoint existe : le jour où il
+  // journalise un corps de requête, l'oubli ne se voit pas — il se lit dans
+  // les logs.
+  'credential',
   'clientSecret',
   'code',
   'codeHash',
@@ -31,6 +36,7 @@ const REDACTED_PATHS = [
   '*.token',
   '*.accessToken',
   '*.refreshToken',
+  '*.credential',
   '*.clientSecret',
   '*.cardNumber',
   '*.cvc',
