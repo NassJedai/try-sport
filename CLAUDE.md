@@ -135,6 +135,25 @@ non-développeur. Règles :
    vérifier soi-même. Tout ce qui touche l'argent passe par le relecteur.
 5. **DISCIPLINE GIT** : commits par lots cohérents, push après validation,
    rien de prouvé laissé non commité en fin de session.
+6. **NASSIM TESTE AVANT LE MONDE — verrou absolu.** Aucune mise en ligne,
+   aucune publication sur un store, aucune salle réelle invitée tant que
+   Nassim n'a pas testé lui-même les **trois parcours** — client mobile,
+   gérant, admin — sur le produit fini.
+
+   Ce verrou ne se lève pas sur une suite de tests verte, ni sur un rapport
+   d'agent, ni sur un « c'est prêt » de la session principale. Il se lève
+   quand Nassim le dit, après avoir vu les trois parcours de ses yeux.
+
+   Le compte Apple Developer sert **uniquement** au test sur son iPhone et à
+   un TestFlight **privé**. Un TestFlight privé n'est pas une publication ;
+   un TestFlight ouvert ou un lien public en est une, et tombe donc sous ce
+   verrou.
+
+   En pratique, cela interdit sans confirmation explicite : soumettre à la
+   revue App Store ou Play Store, élargir un TestFlight au-delà du cercle
+   de test, déployer une API accessible publiquement, envoyer un e-mail
+   d'invitation à un gérant réel, et brancher un moyen de paiement en mode
+   production.
 
 ---
 
