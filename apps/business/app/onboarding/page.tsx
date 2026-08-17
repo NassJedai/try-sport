@@ -1,10 +1,34 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError, queryKeys } from '@try/api-client';
-import { parseDecimalToMinor } from '@try/utils';
+import { queryKeys } from '@try/api-client';
+import type { ExperienceType } from '@try/contracts';
+import { parseDecimalToMinor, toDecimalString, zonedDayKey } from '@try/utils';
 import { api, apiClient, tokenStore } from '@/lib/api';
+import {
+  clearOnboardingDraft,
+  loadOnboardingDraft,
+  saveOnboardingDraft,
+  type OnboardingDraft,
+} from '@/lib/onboarding/draft';
+import { resolveResumePoint } from '@/lib/onboarding/resume';
+import { DEFAULT_OFFER_CAPACITY, type Step, type WizardStep } from '@/lib/onboarding/constants';
+import { diffOfferPatch, diffVenuePatch } from '@/lib/onboarding/diff';
+import { fieldError, fieldErrorsFrom, generalErrorMessage } from '@/lib/onboarding/field-errors';
+import type { CategoryOption, DistrictOption } from '@/lib/onboarding/types';
+import { WizardProgress } from '@/components/onboarding/wizard-progress';
+import { BusinessStep } from '@/components/onboarding/business-step';
+import { VenueLocationStep } from '@/components/onboarding/venue-location-step';
+import { VenueActivitiesStep } from '@/components/onboarding/venue-activities-step';
+import { OfferBasicsStep } from '@/components/onboarding/offer-basics-step';
+import { OfferFormatStep } from '@/components/onboarding/offer-format-step';
+import { ScheduleStep } from '@/components/onboarding/schedule-step';
+import { CompleteDossierStep } from '@/components/onboarding/complete-dossier-step';
+import { ReviewStep } from '@/components/onboarding/review-step';
+import { DoneStep } from '@/components/onboarding/done-step';
+import { PendingStep } from '@/components/onboarding/pending-step';
 
 interface ReferenceData {
   cities: {
@@ -15,29 +39,77 @@ interface ReferenceData {
   categories: { id: string; slug: string; name: string }[];
 }
 
-type Step = 'business' | 'venue' | 'offer' | 'schedule' | 'done';
-
-const DAY_LABELS = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+const DEFAULT_TIME_ZONE = 'Europe/Brussels';
+// Centroïde de Bruxelles-ville : filet de sécurité si aucune commune n'est
+// encore sélectionnée au moment de l'appel (le bouton est alors désactivé).
+const FALLBACK_LATITUDE = 50.8467;
+const FALLBACK_LONGITUDE = 4.3525;
 
 /**
  * L'assistant d'inscription d'un établissement.
  *
- * Quatre étapes courtes plutôt qu'un long formulaire : chaque étape crée
- * réellement l'objet côté serveur avant de passer à la suivante, donc fermer
- * l'onglet en cours de route ne perd rien — on reprend où on en était.
+ * Huit écrans courts plutôt qu'un long formulaire : chaque étape crée
+ * réellement l'objet côté serveur avant de passer à la suivante — fermer
+ * l'onglet en cours de route ne perd rien, on reprend où le serveur dit qu'on
+ * en est (voir `lib/onboarding/resume.ts`). Le `localStorage` ne porte que la
+ * saisie pas encore envoyée (voir `lib/onboarding/draft.ts`) ; les
+ * identifiants se redérivent toujours du serveur au montage.
  *
- * Rien ici ne publie quoi que ce soit : la dernière étape soumet le lieu et
- * l'offre à la modération TRY, et l'écran final le dit clairement.
+ * Option B (arbitrage produit) : photo, description du lieu et TVA sont
+ * obligatoires pour *soumettre* à modération, jamais pour *créer*. Le gérant
+ * crée établissement + lieu + offre + planning en quelques minutes, puis
+ * complète — l'écran 7 et le bouton d'envoi de l'écran 8 portent cette
+ * règle, pas les écrans de création.
  */
 export default function OnboardingPage() {
+  const router = useRouter();
   const queryClient = useQueryClient();
-  const [step, setStep] = useState<Step>('business');
-  const [error, setError] = useState<string | null>(null);
 
-  // Identifiants créés au fil des étapes.
+  const [step, setStep] = useState<Step>('loading');
+  const [resumed, setResumed] = useState(false);
+
+  // Identifiants dérivés du serveur — jamais du localStorage.
   const [businessId, setBusinessId] = useState<string | null>(null);
   const [venueId, setVenueId] = useState<string | null>(null);
   const [offerId, setOfferId] = useState<string | null>(null);
+
+  const [venueEditing, setVenueEditing] = useState(false);
+  const [offerEditing, setOfferEditing] = useState(false);
+  const [totalSlotsCreated, setTotalSlotsCreated] = useState(0);
+
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
+  const [generalError, setGeneralError] = useState<string | null>(null);
+
+  const handleMutationError = (err: unknown) => {
+    setFieldErrors(fieldErrorsFrom(err));
+    setGeneralError(generalErrorMessage(err));
+  };
+  const clearErrors = () => {
+    setFieldErrors({});
+    setGeneralError(null);
+  };
+
+  // Brouillon restauré une seule fois au montage — voir lib/onboarding/draft.ts.
+  const [draft, setDraft] = useState<OnboardingDraft>(() => loadOnboardingDraft());
+  const updateDraft = (patch: Partial<OnboardingDraft>) =>
+    setDraft((current) => {
+      const next = { ...current, ...patch };
+      saveOnboardingDraft(next);
+      return next;
+    });
+  function withDraft<K extends keyof OnboardingDraft>(
+    key: K,
+    setState: (value: NonNullable<OnboardingDraft[K]>) => void,
+  ) {
+    return (value: NonNullable<OnboardingDraft[K]>) => {
+      setState(value);
+      updateDraft({ [key]: value } as Partial<OnboardingDraft>);
+    };
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Données de référence + session                                      */
+  /* ------------------------------------------------------------------ */
 
   const reference = useQuery({
     queryKey: ['reference'],
@@ -47,29 +119,95 @@ export default function OnboardingPage() {
 
   const viewer = useQuery({ queryKey: queryKeys.viewer, queryFn: () => api.auth.me(), retry: false });
 
-  // Un membre existant saute la création d'entreprise.
-  const existingBusinessId = viewer.data?.businessMemberships[0]?.businessId ?? null;
-  if (existingBusinessId && !businessId) {
-    setBusinessId(existingBusinessId);
-    setStep('venue');
-  }
+  /**
+   * `businessId` (l'état local ci-dessus) et non une valeur dérivée de
+   * `viewer.data` : juste après `POST /businesses`, le jeton vient d'être
+   * rafraîchi mais `viewer` ne s'actualise qu'au prochain rendu. Clé sur
+   * `viewer.data.businessMemberships[0]` aurait laissé ces deux requêtes
+   * désactivées pendant toute la création du lieu, et l'écran 7 se serait
+   * affiché vide (`venue` toujours `null`).
+   */
+  const venuesQuery = useQuery({
+    queryKey: [...queryKeys.business.all, businessId, 'venues'],
+    queryFn: () => api.business.venues(businessId as string),
+    enabled: Boolean(businessId),
+  });
 
-  const fail = (err: unknown) =>
-    setError(err instanceof ApiError ? err.message : 'Une erreur est survenue. Réessaie.');
+  const offersQuery = useQuery({
+    queryKey: [...queryKeys.business.all, businessId, 'offers'],
+    queryFn: () => api.business.offers(businessId as string),
+    enabled: Boolean(businessId),
+  });
+
+  // L'assistant ne connaît qu'un seul lieu : le premier créé. Les lieux
+  // suivants se gèrent depuis le tableau de bord, pas depuis cet assistant.
+  const venue = venuesQuery.data?.items[0] ?? null;
+  const offerSummary = offersQuery.data?.items.find((o) => o.venueId === venue?.id) ?? null;
+  const activeOfferId = offerId ?? offerSummary?.id ?? null;
+
+  // La liste métier (`GET .../offers`) ne porte ni description, ni catégorie,
+  // ni type d'expérience, ni prix habituel : la fiche complète vient d'ici.
+  const offerDetailQuery = useQuery({
+    queryKey: queryKeys.offers.detail(activeOfferId ?? ''),
+    queryFn: () => api.offers.detail(activeOfferId as string),
+    enabled: Boolean(activeOfferId),
+  });
+
+  /**
+   * Le nombre de créneaux déjà programmés pour cette offre. `totalSlotsCreated`
+   * (compteur local, alimenté par la réponse de `POST /schedules`) ne connaît
+   * que ce qui a été créé *pendant cette session* — un gérant qui revient sur
+   * l'écran 8 après avoir fermé l'onglet verrait « 0 séance » alors que des
+   * créneaux existent déjà. Cette requête sert de vérité de secours.
+   */
+  const slotsQuery = useQuery({
+    queryKey: [...queryKeys.business.all, businessId, 'slots'],
+    queryFn: () => api.business.slots(businessId as string, 30),
+    enabled: Boolean(businessId) && (step === 'review' || step === 'complete-dossier'),
+  });
+  const offerSlotsCount = activeOfferId
+    ? (slotsQuery.data?.items.filter((s) => s.offerId === activeOfferId).length ?? null)
+    : null;
+
+  const allDistricts: DistrictOption[] = useMemo(
+    () =>
+      (reference.data?.cities ?? []).flatMap((city) =>
+        city.districts.map((d) => ({
+          id: d.id,
+          name: d.name,
+          cityId: city.id,
+          latitude: d.latitude,
+          longitude: d.longitude,
+        })),
+      ),
+    [reference.data],
+  );
+  const cityNameById = useMemo(
+    () => Object.fromEntries((reference.data?.cities ?? []).map((c) => [c.id, c.name])),
+    [reference.data],
+  );
+  const showCityName = (reference.data?.cities.length ?? 0) > 1;
+  const allCategories: CategoryOption[] = reference.data?.categories ?? [];
 
   /* ------------------------------------------------------------------ */
-  /* Étape 1 — l'entreprise                                              */
+  /* Écran 1 — l'établissement                                          */
   /* ------------------------------------------------------------------ */
   const [businessName, setBusinessName] = useState('');
+  const [contactEmail, setContactEmail] = useState('');
+  const [editingEmail, setEditingEmail] = useState(false);
+
+  useEffect(() => {
+    if (viewer.data?.email && !contactEmail) setContactEmail(viewer.data.email);
+  }, [viewer.data?.email, contactEmail]);
 
   const createBusiness = useMutation({
     mutationFn: () =>
       apiClient.post<{ businessId: string }>('/v1/businesses', {
         name: businessName,
-        contactEmail: viewer.data?.email ?? '',
+        contactEmail,
       }),
     onSuccess: async (result) => {
-      setError(null);
+      clearErrors();
       setBusinessId(result.businessId);
 
       /**
@@ -86,22 +224,21 @@ export default function OnboardingPage() {
         await tokenStore.setTokens(session.tokens);
       }
       void queryClient.invalidateQueries({ queryKey: queryKeys.viewer });
-      setStep('venue');
+      setStep('venue-location');
     },
-    onError: fail,
+    onError: handleMutationError,
   });
 
   /* ------------------------------------------------------------------ */
-  /* Étape 2 — le lieu                                                   */
+  /* Écrans 2 & 3 — le lieu                                              */
   /* ------------------------------------------------------------------ */
-  const [venueName, setVenueName] = useState('');
-  const [addressLine, setAddressLine] = useState('');
-  const [postalCode, setPostalCode] = useState('');
-  const [districtId, setDistrictId] = useState('');
-  const [categoryIds, setCategoryIds] = useState<string[]>([]);
+  const [venueName, setVenueName] = useState(draft.venueName ?? '');
+  const [addressLine, setAddressLine] = useState(draft.addressLine ?? '');
+  const [postalCode, setPostalCode] = useState(draft.postalCode ?? '');
+  const [districtId, setDistrictId] = useState(draft.districtId ?? '');
+  const [categoryIds, setCategoryIds] = useState<string[]>(draft.categoryIds ?? []);
 
-  const city = reference.data?.cities[0];
-  const district = city?.districts.find((d) => d.id === districtId);
+  const selectedDistrict = allDistricts.find((d) => d.id === districtId) ?? null;
 
   const createVenue = useMutation({
     mutationFn: () =>
@@ -109,100 +246,418 @@ export default function OnboardingPage() {
         name: venueName,
         addressLine,
         postalCode,
-        cityId: city?.id,
+        cityId: selectedDistrict?.cityId,
         districtId: districtId || undefined,
         /**
          * Position approximative : le centroïde de la commune choisie. Demander
          * des coordonnées GPS à un gérant est une impasse — la position fine
          * s'ajustera avec le géocodage de l'adresse (à venir).
          */
-        latitude: district?.latitude ?? 50.8467,
-        longitude: district?.longitude ?? 4.3525,
+        latitude: selectedDistrict?.latitude ?? FALLBACK_LATITUDE,
+        longitude: selectedDistrict?.longitude ?? FALLBACK_LONGITUDE,
         categoryIds,
       }),
     onSuccess: (result) => {
-      setError(null);
+      clearErrors();
       setVenueId(result.venueId);
-      setStep('offer');
+      updateDraft({
+        venueName: undefined,
+        addressLine: undefined,
+        postalCode: undefined,
+        districtId: undefined,
+        categoryIds: undefined,
+      });
+      // Sans ce rafraîchissement, `venue` (dérivé de cette liste) reste `null`
+      // jusqu'à la prochaine navigation — et l'écran 7, qui exige `venue` pour
+      // s'afficher, resterait vide.
+      void queryClient.invalidateQueries({ queryKey: [...queryKeys.business.all, businessId, 'venues'] });
+      setStep('offer-basics');
     },
-    onError: fail,
+    onError: handleMutationError,
   });
 
-  /* ------------------------------------------------------------------ */
-  /* Étape 3 — la première offre                                         */
-  /* ------------------------------------------------------------------ */
-  const [offerTitle, setOfferTitle] = useState('');
-  const [offerDescription, setOfferDescription] = useState('');
-  const [price, setPrice] = useState('0');
-  const [referencePrice, setReferencePrice] = useState('');
-  const [duration, setDuration] = useState('60');
-  const [capacity, setCapacity] = useState('10');
-  const [offerCategoryId, setOfferCategoryId] = useState('');
+  const updateVenueMutation = useMutation({
+    mutationFn: (patch: ReturnType<typeof diffVenuePatch>) =>
+      api.business.updateVenue(venueId as string, patch),
+    onSuccess: () => {
+      clearErrors();
+      void queryClient.invalidateQueries({ queryKey: [...queryKeys.business.all, businessId, 'venues'] });
+      setVenueEditing(false);
+      setStep('review');
+    },
+    onError: handleMutationError,
+  });
 
-  const createOffer = useMutation({
-    mutationFn: () => {
-      // Les prix voyagent en centimes ; la conversion refuse les imprécisions.
+  const handleVenueActivitiesSubmit = () => {
+    if (venueEditing && venue) {
+      const patch = diffVenuePatch(venue, {
+        name: venueName,
+        addressLine,
+        postalCode,
+        cityId: selectedDistrict?.cityId ?? venue.cityId,
+        districtId,
+        latitude: selectedDistrict?.latitude ?? venue.latitude,
+        longitude: selectedDistrict?.longitude ?? venue.longitude,
+        categoryIds,
+      });
+      if (Object.keys(patch).length === 0) {
+        setVenueEditing(false);
+        setStep('review');
+        return;
+      }
+      updateVenueMutation.mutate(patch);
+    } else {
+      createVenue.mutate();
+    }
+  };
+
+  const startEditVenue = () => {
+    if (!venue) return;
+    setVenueName(venue.name);
+    setAddressLine(venue.addressLine);
+    setPostalCode(venue.postalCode);
+    setDistrictId(venue.districtId ?? '');
+    setCategoryIds(venue.categoryIds);
+    setVenueEditing(true);
+    clearErrors();
+    setStep('venue-location');
+  };
+
+  /* ------------------------------------------------------------------ */
+  /* Écrans 4 & 5 — la première offre                                    */
+  /* ------------------------------------------------------------------ */
+  const [offerTitle, setOfferTitle] = useState(draft.offerTitle ?? '');
+  const [offerDescription, setOfferDescription] = useState(draft.offerDescription ?? '');
+  const [offerCategoryId, setOfferCategoryId] = useState(draft.offerCategoryId ?? '');
+  const [experienceType, setExperienceType] = useState<ExperienceType>(draft.experienceType ?? 'FREE_TRIAL');
+  const [experienceTypeTouched, setExperienceTypeTouched] = useState(false);
+  const [isPaid, setIsPaid] = useState(draft.isPaid ?? false);
+  const [price, setPrice] = useState(draft.price ?? '0');
+  const [referencePrice, setReferencePrice] = useState(draft.referencePrice ?? '');
+  const [duration, setDuration] = useState(draft.duration ?? '60');
+  const [capacity, setCapacity] = useState(draft.capacity ?? DEFAULT_OFFER_CAPACITY);
+
+  const venueCategoryOptions = allCategories.filter((c) => categoryIds.includes(c.id));
+
+  const handleTogglePaid = (paid: boolean) => {
+    setIsPaid(paid);
+    updateDraft({ isPaid: paid });
+    if (!paid) {
+      setPrice('0');
+      updateDraft({ price: '0' });
+    } else if (price.trim() === '0' || price.trim() === '') {
+      setPrice('');
+      updateDraft({ price: '' });
+    }
+    if (!experienceTypeTouched) {
+      const next: ExperienceType = paid ? 'DISCOVERY_PRICE' : 'FREE_TRIAL';
+      setExperienceType(next);
+      updateDraft({ experienceType: next });
+    }
+  };
+
+  const handleExperienceTypeChange = (value: ExperienceType) => {
+    setExperienceTypeTouched(true);
+    setExperienceType(value);
+    updateDraft({ experienceType: value });
+  };
+
+  function parseOfferPrices(): { priceAmount: number; referenceAmount: number | null } {
+    try {
       const priceAmount = parseDecimalToMinor(price || '0', 'EUR').amount;
       const referenceAmount = referencePrice.trim()
         ? parseDecimalToMinor(referencePrice, 'EUR').amount
         : null;
+      return { priceAmount, referenceAmount };
+    } catch {
+      throw new Error('Le prix doit être un nombre valide, par exemple 8 ou 8,50.');
+    }
+  }
 
+  const createOffer = useMutation({
+    mutationFn: () => {
+      const { priceAmount, referenceAmount } = parseOfferPrices();
       return apiClient.post<{ offerId: string }>('/v1/offers', {
         venueId,
         categoryId: offerCategoryId || categoryIds[0],
         title: offerTitle,
         description: offerDescription,
-        experienceType: priceAmount === 0 ? 'FREE_TRIAL' : 'DISCOVERY_PRICE',
+        experienceType,
         priceAmount,
         referencePriceAmount: referenceAmount,
         durationMinutes: Number(duration),
-        capacity: Number(capacity),
+        capacity,
       });
     },
     onSuccess: (result) => {
-      setError(null);
+      clearErrors();
       setOfferId(result.offerId);
+      updateDraft({
+        offerTitle: undefined,
+        offerDescription: undefined,
+        offerCategoryId: undefined,
+        experienceType: undefined,
+        isPaid: undefined,
+        price: undefined,
+        referencePrice: undefined,
+        duration: undefined,
+      });
+      // `offerSummary` (dérivé de cette liste) sert à décider, à l'écran 8, si
+      // l'offre doit encore être soumise (`status === 'DRAFT'`) — sans ce
+      // rafraîchissement il resterait `null` et la soumission serait sautée en
+      // silence.
+      void queryClient.invalidateQueries({ queryKey: [...queryKeys.business.all, businessId, 'offers'] });
       setStep('schedule');
     },
-    onError: fail,
+    onError: handleMutationError,
+  });
+
+  const updateOfferMutation = useMutation({
+    mutationFn: (patch: ReturnType<typeof diffOfferPatch>) =>
+      api.business.updateOffer(activeOfferId as string, patch),
+    onSuccess: () => {
+      clearErrors();
+      void queryClient.invalidateQueries({ queryKey: [...queryKeys.business.all, businessId, 'offers'] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.offers.detail(activeOfferId ?? '') });
+      setOfferEditing(false);
+      setStep('review');
+    },
+    onError: handleMutationError,
+  });
+
+  const handleOfferFormatSubmit = () => {
+    if (offerEditing && offerDetailQuery.data) {
+      let priceAmount: number;
+      let referenceAmount: number | null;
+      try {
+        ({ priceAmount, referenceAmount } = parseOfferPrices());
+      } catch (err) {
+        handleMutationError(err);
+        return;
+      }
+      const patch = diffOfferPatch(offerDetailQuery.data, {
+        title: offerTitle,
+        description: offerDescription,
+        categoryId: offerCategoryId || categoryIds[0] || '',
+        experienceType,
+        priceAmount,
+        referencePriceAmount: referenceAmount,
+        durationMinutes: Number(duration),
+        capacity,
+      });
+      if (Object.keys(patch).length === 0) {
+        setOfferEditing(false);
+        setStep('review');
+        return;
+      }
+      updateOfferMutation.mutate(patch);
+    } else {
+      createOffer.mutate();
+    }
+  };
+
+  const startEditOffer = () => {
+    const detail = offerDetailQuery.data;
+    if (!detail) return;
+    setOfferTitle(detail.title);
+    setOfferDescription(detail.description);
+    setOfferCategoryId(detail.category.id);
+    setExperienceType(detail.experienceType);
+    setExperienceTypeTouched(true); // une correction ne doit pas re-choisir le type à la place du gérant
+    setIsPaid(detail.price.amount > 0);
+    setPrice(toDecimalString(detail.price));
+    setReferencePrice(detail.referencePrice ? toDecimalString(detail.referencePrice) : '');
+    setDuration(String(detail.durationMinutes));
+    setCapacity(detail.capacity);
+    setOfferEditing(true);
+    clearErrors();
+    setStep('offer-basics');
+  };
+
+  /* ------------------------------------------------------------------ */
+  /* Écran 6 — les créneaux                                              */
+  /* ------------------------------------------------------------------ */
+  const [daysOfWeek, setDaysOfWeek] = useState<number[]>(draft.daysOfWeek ?? []);
+  const [times, setTimes] = useState<string[]>(draft.times?.length ? draft.times : ['19:00']);
+
+  const toggleDay = (day: number) => {
+    const next = daysOfWeek.includes(day) ? daysOfWeek.filter((d) => d !== day) : [...daysOfWeek, day];
+    setDaysOfWeek(next);
+    updateDraft({ daysOfWeek: next });
+  };
+
+  const createSchedules = useMutation({
+    mutationFn: async () => {
+      const validFrom = zonedDayKey(new Date(), DEFAULT_TIME_ZONE);
+      let created = 0;
+      for (const time of times) {
+        // Séquentiel et non parallèle : chaque appel est un point de reprise,
+        // et une erreur au deuxième horaire ne doit pas laisser le premier
+        // dans un état ambigu.
+        const result = await apiClient.post<{ scheduleId: string; slotsCreated: number }>(
+          '/v1/schedules',
+          {
+            offerId: activeOfferId,
+            daysOfWeek,
+            startTime: time,
+            capacity,
+            validFrom,
+          },
+        );
+        created += result.slotsCreated;
+      }
+      return created;
+    },
+    onSuccess: (created) => {
+      clearErrors();
+      setTotalSlotsCreated((current) => current + created);
+      updateDraft({ daysOfWeek: undefined, times: undefined });
+      void queryClient.invalidateQueries({ queryKey: [...queryKeys.business.all, businessId, 'slots'] });
+      setStep('complete-dossier');
+    },
+    onError: handleMutationError,
   });
 
   /* ------------------------------------------------------------------ */
-  /* Étape 4 — horaires récurrents puis soumission                       */
+  /* Écran 7 — compléter le dossier                                      */
   /* ------------------------------------------------------------------ */
-  const [daysOfWeek, setDaysOfWeek] = useState<number[]>([]);
-  const [startTime, setStartTime] = useState('19:00');
+  const [venueDescription, setVenueDescription] = useState(draft.venueDescription ?? '');
+  const [venueDescriptionSavedValue, setVenueDescriptionSavedValue] = useState<string | null>(null);
+  const [legalName, setLegalName] = useState(draft.legalName ?? '');
+  const [vatNumber, setVatNumber] = useState(draft.vatNumber ?? '');
 
-  const finish = useMutation({
+  useEffect(() => {
+    // Reprise directe sur l'écran 7 : la description déjà enregistrée côté
+    // serveur prend le pas sur un brouillon local plus ancien.
+    if (venue?.description && venueDescription === '') {
+      setVenueDescription(venue.description);
+      setVenueDescriptionSavedValue(venue.description);
+    }
+  }, [venue?.description, venueDescription]);
+
+  const saveVenueDescription = useMutation({
+    mutationFn: () => api.business.updateVenue(venueId as string, { description: venueDescription }),
+    onSuccess: () => {
+      clearErrors();
+      setVenueDescriptionSavedValue(venueDescription);
+      updateDraft({ venueDescription: undefined });
+      void queryClient.invalidateQueries({ queryKey: [...queryKeys.business.all, businessId, 'venues'] });
+    },
+    onError: handleMutationError,
+  });
+
+  const refreshVenueCounters = () =>
+    void queryClient.invalidateQueries({ queryKey: [...queryKeys.business.all, businessId, 'venues'] });
+
+  /* ------------------------------------------------------------------ */
+  /* Écran 8 — vérifier et envoyer                                       */
+  /* ------------------------------------------------------------------ */
+  const submitDossier = useMutation({
     mutationFn: async () => {
-      await apiClient.post('/v1/schedules', {
-        offerId,
-        daysOfWeek,
-        startTime,
-        capacity: Number(capacity),
-        validFrom: new Date().toISOString().slice(0, 10),
-      });
-      // Lieu puis offre : l'ordre reflète la règle de modération (une offre ne
-      // peut être approuvée que si son lieu l'est déjà).
-      await apiClient.post(`/v1/venues/${venueId}/submit`);
-      await apiClient.post(`/v1/offers/${offerId}/submit`);
+      if (venue && (venue.status === 'DRAFT' || venue.status === 'REJECTED')) {
+        await apiClient.post(`/v1/venues/${venue.id}/submit`);
+      }
+      if (activeOfferId && (offerSummary?.status === 'DRAFT' || offerSummary?.status === 'REJECTED')) {
+        await apiClient.post(`/v1/offers/${activeOfferId}/submit`);
+      }
     },
     onSuccess: () => {
-      setError(null);
+      clearErrors();
+      clearOnboardingDraft();
       setStep('done');
     },
-    onError: fail,
+    onError: handleMutationError,
   });
 
-  const toggleDay = (day: number) =>
-    setDaysOfWeek((current) =>
-      current.includes(day) ? current.filter((d) => d !== day) : [...current, day],
-    );
+  /* ------------------------------------------------------------------ */
+  /* Reprise — dérivée du serveur au montage, jamais du localStorage      */
+  /* ------------------------------------------------------------------ */
+  useEffect(() => {
+    if (resumed) return;
+    if (viewer.isLoading) return;
+    if (viewer.isError) {
+      setResumed(true);
+      return;
+    }
+    if (!viewer.data) return;
+    if (viewer.data.businessMemberships.length === 0) {
+      setStep('business');
+      setResumed(true);
+      return;
+    }
 
-  const toggleCategory = (id: string) =>
-    setCategoryIds((current) =>
-      current.includes(id) ? current.filter((c) => c !== id) : [...current, id],
-    );
+    setBusinessId(viewer.data.businessMemberships[0]?.businessId ?? null);
+
+    if (venuesQuery.isLoading || offersQuery.isLoading) return;
+    if (!venuesQuery.data || !offersQuery.data) return;
+
+    const point = resolveResumePoint({
+      viewer: viewer.data,
+      venues: venuesQuery.data.items,
+      offers: offersQuery.data.items,
+    });
+
+    const firstVenue = venuesQuery.data.items[0];
+    const matchingOffer = firstVenue
+      ? offersQuery.data.items.find((o) => o.venueId === firstVenue.id)
+      : undefined;
+
+    switch (point) {
+      case 'business':
+        setStep('business');
+        break;
+      case 'venue-location':
+        setStep('venue-location');
+        break;
+      case 'offer-basics':
+        if (firstVenue) {
+          setVenueId(firstVenue.id);
+          setCategoryIds(firstVenue.categoryIds);
+        }
+        setStep('offer-basics');
+        break;
+      case 'complete-dossier':
+        if (firstVenue) {
+          setVenueId(firstVenue.id);
+          setCategoryIds(firstVenue.categoryIds);
+        }
+        if (matchingOffer) {
+          setOfferId(matchingOffer.id);
+          // Repris pour que « Ajouter des créneaux », plus loin, propose la
+          // capacité réelle de l'offre plutôt qu'un brouillon local périmé.
+          setCapacity(matchingOffer.capacity);
+        }
+        setStep('complete-dossier');
+        break;
+      case 'review':
+        if (firstVenue) {
+          setVenueId(firstVenue.id);
+          setCategoryIds(firstVenue.categoryIds);
+        }
+        if (matchingOffer) {
+          setOfferId(matchingOffer.id);
+          setCapacity(matchingOffer.capacity);
+        }
+        setStep('review');
+        break;
+      case 'pending':
+        setStep('pending');
+        break;
+      case 'redirect-dashboard':
+        router.replace('/');
+        break;
+    }
+    setResumed(true);
+  }, [
+    resumed,
+    viewer.isLoading,
+    viewer.isError,
+    viewer.data,
+    venuesQuery.isLoading,
+    venuesQuery.data,
+    offersQuery.isLoading,
+    offersQuery.data,
+  ]);
 
   /* ------------------------------------------------------------------ */
 
@@ -221,241 +676,226 @@ export default function OnboardingPage() {
     );
   }
 
-  const stepIndex = ['business', 'venue', 'offer', 'schedule', 'done'].indexOf(step);
+  if (step === 'loading' || !resumed) {
+    return (
+      <main className="mx-auto max-w-xl p-6 lg:p-10">
+        <div className="h-8 w-2/3 animate-pulse rounded-card bg-surface-muted" aria-hidden />
+        <div className="mt-4 h-40 animate-pulse rounded-card bg-surface-muted" aria-hidden />
+        <p className="sr-only">Chargement de ton dossier…</p>
+      </main>
+    );
+  }
+
+  const isWizardStep = step !== 'pending' && step !== 'done';
 
   return (
-    <main className="mx-auto max-w-xl p-6 lg:p-10">
-      <p className="text-xs font-semibold uppercase tracking-wide text-text-tertiary">
-        Inscription · étape {Math.min(stepIndex + 1, 4)} sur 4
-      </p>
-      <div className="mt-2 flex gap-1" aria-hidden>
-        {[0, 1, 2, 3].map((i) => (
-          <div
-            key={i}
-            // accent-text, pas accent : les segments faits et à faire ne se
-            // distinguaient qu'à 1,03:1, soit une barre d'un seul tenant.
-            className={`h-1.5 flex-1 rounded-full ${i <= stepIndex ? 'bg-accent-text' : 'bg-surface-muted'}`}
-          />
-        ))}
-      </div>
+    <main className="mx-auto max-w-xl p-6 pb-28 lg:p-10">
+      {isWizardStep && <WizardProgress step={step as WizardStep} />}
 
-      {error && (
+      {generalError && (
         <p role="alert" className="mt-4 rounded-card bg-danger-subtle p-3 text-sm text-danger">
-          {error}
+          {generalError}
         </p>
       )}
 
       {step === 'business' && (
-        <form
-          className="mt-8 flex flex-col gap-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            createBusiness.mutate();
-          }}
-        >
-          <h1 className="text-3xl font-bold">Ton établissement</h1>
-          <p className="text-text-secondary">Le nom sous lequel les clients te connaîtront.</p>
-          <label htmlFor="bname" className="sr-only">Nom de l’établissement</label>
-          <input
-            id="bname"
-            value={businessName}
-            onChange={(e) => setBusinessName(e.target.value)}
-            placeholder="Studio Exemple"
-            required
-            minLength={2}
-            className="min-h-12 rounded-card border border-border bg-surface px-4"
-          />
-          <button
-            type="submit"
-            disabled={createBusiness.isPending || businessName.trim().length < 2}
-            className="min-h-12 rounded-card bg-accent font-semibold text-on-accent disabled:opacity-50"
-          >
-            {createBusiness.isPending ? '…' : 'Continuer'}
-          </button>
-        </form>
+        <BusinessStep
+          businessName={businessName}
+          onBusinessNameChange={setBusinessName}
+          contactEmail={contactEmail}
+          onContactEmailChange={setContactEmail}
+          editingEmail={editingEmail}
+          onToggleEditingEmail={() => setEditingEmail(true)}
+          viewerReady={viewer.isSuccess}
+          fieldErrors={fieldErrors}
+          onSubmit={() => createBusiness.mutate()}
+          isPending={createBusiness.isPending}
+        />
       )}
 
-      {step === 'venue' && (
-        <form
-          className="mt-8 flex flex-col gap-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            createVenue.mutate();
-          }}
-        >
-          <h1 className="text-3xl font-bold">Ton lieu</h1>
-          <p className="text-text-secondary">Là où les clients viendront essayer.</p>
-
-          <label htmlFor="vname" className="text-sm font-semibold">Nom du lieu</label>
-          <input id="vname" value={venueName} onChange={(e) => setVenueName(e.target.value)} required minLength={2} placeholder="Studio Exemple Ixelles" className="min-h-12 rounded-card border border-border bg-surface px-4" />
-
-          <label htmlFor="vaddr" className="text-sm font-semibold">Adresse</label>
-          <input id="vaddr" value={addressLine} onChange={(e) => setAddressLine(e.target.value)} required minLength={4} placeholder="Rue de la Paix 10" className="min-h-12 rounded-card border border-border bg-surface px-4" />
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label htmlFor="vcp" className="text-sm font-semibold">Code postal</label>
-              <input id="vcp" value={postalCode} onChange={(e) => setPostalCode(e.target.value)} required placeholder="1050" className="mt-1 min-h-12 w-full rounded-card border border-border bg-surface px-4" />
-            </div>
-            <div>
-              <label htmlFor="vdistrict" className="text-sm font-semibold">Commune</label>
-              <select id="vdistrict" value={districtId} onChange={(e) => setDistrictId(e.target.value)} required className="mt-1 min-h-12 w-full rounded-card border border-border bg-surface px-3">
-                <option value="">Choisir…</option>
-                {city?.districts.map((d) => (
-                  <option key={d.id} value={d.id}>{d.name}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <fieldset>
-            <legend className="text-sm font-semibold">Activités proposées</legend>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {reference.data?.categories.map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => toggleCategory(c.id)}
-                  aria-pressed={categoryIds.includes(c.id)}
-                  className={`min-h-11 rounded-pill px-4 text-sm font-semibold ${
-                    categoryIds.includes(c.id) ? 'bg-accent text-on-accent' : 'bg-surface-muted text-text-secondary'
-                  }`}
-                >
-                  {c.name}
-                </button>
-              ))}
-            </div>
-          </fieldset>
-
-          <button
-            type="submit"
-            disabled={createVenue.isPending || categoryIds.length === 0 || !districtId}
-            className="min-h-12 rounded-card bg-accent font-semibold text-on-accent disabled:opacity-50"
-          >
-            {createVenue.isPending ? '…' : 'Continuer'}
-          </button>
-        </form>
+      {step === 'venue-location' && (
+        <VenueLocationStep
+          venueName={venueName}
+          onVenueNameChange={withDraft('venueName', setVenueName)}
+          addressLine={addressLine}
+          onAddressLineChange={withDraft('addressLine', setAddressLine)}
+          postalCode={postalCode}
+          onPostalCodeChange={withDraft('postalCode', setPostalCode)}
+          districtId={districtId}
+          onDistrictIdChange={withDraft('districtId', setDistrictId)}
+          districts={allDistricts}
+          showCityName={showCityName}
+          cityNameById={cityNameById}
+          fieldErrors={fieldErrors}
+          onCancel={
+            venueEditing
+              ? () => {
+                  setVenueEditing(false);
+                  clearErrors();
+                  setStep('review');
+                }
+              : undefined
+          }
+          onContinue={() => setStep('venue-activities')}
+          ctaLabel="Continuer"
+        />
       )}
 
-      {step === 'offer' && (
-        <form
-          className="mt-8 flex flex-col gap-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            createOffer.mutate();
+      {step === 'venue-activities' && (
+        <VenueActivitiesStep
+          categories={allCategories}
+          categoryIds={categoryIds}
+          onToggleCategory={(id) => {
+            const next = categoryIds.includes(id)
+              ? categoryIds.filter((c) => c !== id)
+              : [...categoryIds, id];
+            setCategoryIds(next);
+            updateDraft({ categoryIds: next });
           }}
-        >
-          <h1 className="text-3xl font-bold">Ta première offre découverte</h1>
-          <p className="text-text-secondary">Ce que les nouveaux clients pourront essayer.</p>
+          fieldErrors={fieldErrors}
+          onBack={() => setStep('venue-location')}
+          onSubmit={handleVenueActivitiesSubmit}
+          isPending={createVenue.isPending || updateVenueMutation.isPending}
+          ctaLabel={venueEditing ? 'Enregistrer les modifications' : 'Continuer'}
+        />
+      )}
 
-          <label htmlFor="otitle" className="text-sm font-semibold">Titre</label>
-          <input id="otitle" value={offerTitle} onChange={(e) => setOfferTitle(e.target.value)} required minLength={3} placeholder="Première séance découverte" className="min-h-12 rounded-card border border-border bg-surface px-4" />
+      {step === 'offer-basics' && (
+        <OfferBasicsStep
+          venueBanner={!offerEditing && venue ? `Ton lieu « ${venue.name} » est déjà enregistré.` : null}
+          title={offerTitle}
+          onTitleChange={withDraft('offerTitle', setOfferTitle)}
+          description={offerDescription}
+          onDescriptionChange={withDraft('offerDescription', setOfferDescription)}
+          categories={venueCategoryOptions}
+          categoryId={offerCategoryId || categoryIds[0] || ''}
+          onCategoryIdChange={withDraft('offerCategoryId', setOfferCategoryId)}
+          fieldErrors={fieldErrors}
+          onCancel={
+            offerEditing
+              ? () => {
+                  setOfferEditing(false);
+                  clearErrors();
+                  setStep('review');
+                }
+              : undefined
+          }
+          onContinue={() => setStep('offer-format')}
+          ctaLabel="Continuer"
+        />
+      )}
 
-          <label htmlFor="odesc" className="text-sm font-semibold">Description</label>
-          <textarea id="odesc" value={offerDescription} onChange={(e) => setOfferDescription(e.target.value)} required minLength={20} rows={3} placeholder="Décris la séance : à quoi s’attendre, pour quel niveau, ce qui est fourni…" className="rounded-card border border-border bg-surface p-4" />
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label htmlFor="oprice" className="text-sm font-semibold">Prix découverte (€)</label>
-              <input id="oprice" value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" placeholder="0 = gratuit" className="mt-1 min-h-12 w-full rounded-card border border-border bg-surface px-4" />
-            </div>
-            <div>
-              <label htmlFor="orefprice" className="text-sm font-semibold">Prix habituel (€)</label>
-              <input id="orefprice" value={referencePrice} onChange={(e) => setReferencePrice(e.target.value)} inputMode="decimal" placeholder="facultatif" className="mt-1 min-h-12 w-full rounded-card border border-border bg-surface px-4" />
-            </div>
-            <div>
-              <label htmlFor="odur" className="text-sm font-semibold">Durée (minutes)</label>
-              <input id="odur" value={duration} onChange={(e) => setDuration(e.target.value)} inputMode="numeric" required className="mt-1 min-h-12 w-full rounded-card border border-border bg-surface px-4" />
-            </div>
-            <div>
-              <label htmlFor="ocap" className="text-sm font-semibold">Places par séance</label>
-              <input id="ocap" value={capacity} onChange={(e) => setCapacity(e.target.value)} inputMode="numeric" required className="mt-1 min-h-12 w-full rounded-card border border-border bg-surface px-4" />
-            </div>
-          </div>
-
-          {categoryIds.length > 1 && (
-            <div>
-              <label htmlFor="ocat" className="text-sm font-semibold">Catégorie de l’offre</label>
-              <select id="ocat" value={offerCategoryId} onChange={(e) => setOfferCategoryId(e.target.value)} className="mt-1 min-h-12 w-full rounded-card border border-border bg-surface px-3">
-                {categoryIds.map((id) => {
-                  const c = reference.data?.categories.find((x) => x.id === id);
-                  return c ? <option key={id} value={id}>{c.name}</option> : null;
-                })}
-              </select>
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={createOffer.isPending}
-            className="min-h-12 rounded-card bg-accent font-semibold text-on-accent disabled:opacity-50"
-          >
-            {createOffer.isPending ? '…' : 'Continuer'}
-          </button>
-        </form>
+      {step === 'offer-format' && (
+        <OfferFormatStep
+          experienceType={experienceType}
+          onExperienceTypeChange={handleExperienceTypeChange}
+          isPaid={isPaid}
+          onTogglePaid={handleTogglePaid}
+          price={price}
+          onPriceChange={withDraft('price', setPrice)}
+          referencePrice={referencePrice}
+          onReferencePriceChange={withDraft('referencePrice', setReferencePrice)}
+          duration={duration}
+          onDurationChange={withDraft('duration', setDuration)}
+          capacity={capacity}
+          onCapacityChange={withDraft('capacity', setCapacity)}
+          fieldErrors={fieldErrors}
+          onBack={() => setStep('offer-basics')}
+          onSubmit={handleOfferFormatSubmit}
+          isPending={createOffer.isPending || updateOfferMutation.isPending}
+          ctaLabel={offerEditing ? 'Enregistrer les modifications' : 'Continuer'}
+        />
       )}
 
       {step === 'schedule' && (
-        <form
-          className="mt-8 flex flex-col gap-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            finish.mutate();
+        <ScheduleStep
+          daysOfWeek={daysOfWeek}
+          onToggleDay={toggleDay}
+          times={times}
+          onTimeChange={(index, value) => {
+            const next = times.map((t, i) => (i === index ? value : t));
+            setTimes(next);
+            updateDraft({ times: next });
           }}
-        >
-          <h1 className="text-3xl font-bold">Tes créneaux</h1>
-          <p className="text-text-secondary">
-            Les jours et l’heure de la séance. Les créneaux des 30 prochains jours seront créés
-            automatiquement.
-          </p>
-
-          <fieldset>
-            <legend className="text-sm font-semibold">Jours</legend>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {DAY_LABELS.map((label, day) => (
-                <button
-                  key={label}
-                  type="button"
-                  onClick={() => toggleDay(day)}
-                  aria-pressed={daysOfWeek.includes(day)}
-                  className={`min-h-11 min-w-14 rounded-pill px-3 text-sm font-semibold ${
-                    daysOfWeek.includes(day) ? 'bg-accent text-on-accent' : 'bg-surface-muted text-text-secondary'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </fieldset>
-
-          <label htmlFor="stime" className="text-sm font-semibold">Heure de début</label>
-          <input id="stime" type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} required className="min-h-12 w-40 rounded-card border border-border bg-surface px-4" />
-
-          <button
-            type="submit"
-            disabled={finish.isPending || daysOfWeek.length === 0}
-            className="min-h-12 rounded-card bg-accent font-semibold text-on-accent disabled:opacity-50"
-          >
-            {finish.isPending ? 'Envoi…' : 'Soumettre à TRIALYA'}
-          </button>
-        </form>
+          onAddTime={() => {
+            const last = times[times.length - 1] ?? '19:00';
+            const next = [...times, last];
+            setTimes(next);
+            updateDraft({ times: next });
+          }}
+          onRemoveTime={(index) => {
+            const next = times.filter((_, i) => i !== index);
+            setTimes(next);
+            updateDraft({ times: next });
+          }}
+          capacity={capacity}
+          scheduleError={fieldError(fieldErrors, 'daysOfWeek') ?? fieldError(fieldErrors, 'startTime')}
+          onSubmit={() => createSchedules.mutate()}
+          isPending={createSchedules.isPending}
+          ctaLabel="Continuer"
+        />
       )}
 
+      {step === 'complete-dossier' && venueId && venue && (
+        <CompleteDossierStep
+          venueId={venueId}
+          missingRequirements={venue.missingRequirements}
+          description={venueDescription}
+          onDescriptionChange={withDraft('venueDescription', setVenueDescription)}
+          onSaveDescription={() => saveVenueDescription.mutate()}
+          isSavingDescription={saveVenueDescription.isPending}
+          descriptionSaved={venueDescriptionSavedValue === venueDescription}
+          onPhotosChanged={refreshVenueCounters}
+          fieldErrors={fieldErrors}
+          legalName={legalName}
+          onLegalNameChange={withDraft('legalName', setLegalName)}
+          vatNumber={vatNumber}
+          onVatNumberChange={withDraft('vatNumber', setVatNumber)}
+          onContinue={() => setStep('review')}
+        />
+      )}
+
+      {step === 'review' && venue && offerDetailQuery.data && (
+        <ReviewStep
+          businessName={
+            viewer.data?.businessMemberships.find((m) => m.businessId === businessId)?.businessName ??
+            businessName
+          }
+          contactEmail={contactEmail || viewer.data?.email || ''}
+          venue={venue}
+          districtName={allDistricts.find((d) => d.id === venue.districtId)?.name ?? null}
+          categoryNames={venue.categoryIds
+            .map((id) => allCategories.find((c) => c.id === id)?.name)
+            .filter((n): n is string => Boolean(n))}
+          offer={{
+            title: offerDetailQuery.data.title,
+            description: offerDetailQuery.data.description,
+            experienceType: offerDetailQuery.data.experienceType,
+            priceAmount: offerDetailQuery.data.price.amount,
+            referencePriceAmount: offerDetailQuery.data.referencePrice?.amount ?? null,
+            durationMinutes: offerDetailQuery.data.durationMinutes,
+            capacity: offerDetailQuery.data.capacity,
+            rejectedReason: offerSummary?.rejectedReason ?? null,
+          }}
+          slotsCreated={totalSlotsCreated || offerSlotsCount}
+          onEditVenue={startEditVenue}
+          onEditOffer={startEditOffer}
+          onAddSchedule={() => setStep('schedule')}
+          onSubmit={() => submitDossier.mutate()}
+          isSubmitting={submitDossier.isPending}
+          submitError={generalError}
+        />
+      )}
+
+      {step === 'pending' && <PendingStep contactEmail={contactEmail || viewer.data?.email || ''} />}
+
       {step === 'done' && (
-        <div className="mt-10 rounded-card bg-success-subtle p-8 text-center">
-          <p className="text-4xl" aria-hidden>✓</p>
-          <h1 className="mt-2 text-2xl font-bold text-success">C’est envoyé</h1>
-          <p className="mt-2 text-text-secondary">
-            Ton lieu et ton offre sont en cours de vérification par l’équipe TRIALYA. Tu recevras une
-            réponse rapidement — en attendant, ton tableau de bord est prêt.
-          </p>
-          <a
-            href="/"
-            className="mt-6 inline-block rounded-card bg-accent px-5 py-3 font-semibold text-on-accent"
-          >
-            Voir mon tableau de bord
-          </a>
-        </div>
+        <DoneStep
+          venueName={venue?.name ?? venueName}
+          offerTitle={offerDetailQuery.data?.title ?? offerTitle}
+          slotsCreated={totalSlotsCreated || offerSlotsCount || 0}
+          contactEmail={contactEmail || viewer.data?.email || ''}
+        />
       )}
     </main>
   );

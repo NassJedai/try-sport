@@ -5,21 +5,32 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@try/api-client';
 import { api } from '@/lib/api';
 
+/** Ce que le serveur accepte — vérifié ici aussi pour ne pas envoyer un fichier voué au refus. */
+const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const MAX_FILE_BYTES = 8 * 1024 * 1024;
+
 /**
  * Gestion des photos d'un lieu ou d'une offre.
  *
  * Le fichier part tel quel, en binaire — pas de recadrage ni de compression côté
  * client : le serveur vérifie le format par les octets et refuse au-delà de
  * 8 Mo, et les variantes d'affichage seront le travail d'un CDN d'images.
+ *
+ * Le format et la taille sont en revanche pré-contrôlés *avant* l'envoi : une
+ * photo d'iPhone de 12 Mo sur la 4G d'une salle de sport, c'est une longue
+ * attente pour un refus à 8 Mo. Mieux vaut le dire tout de suite.
  */
 export function PhotoManager({
   kind,
   entityId,
   title,
+  onChange,
 }: {
   kind: 'venue' | 'offer';
   entityId: string;
   title: string;
+  /** Signale un ajout ou une suppression réussis à un parent qui suit un compteur ailleurs (ex. le dossier de soumission). */
+  onChange?: () => void;
 }) {
   const queryClient = useQueryClient();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -45,6 +56,7 @@ export function PhotoManager({
     onSuccess: () => {
       setError(null);
       invalidate();
+      onChange?.();
     },
     onError: (mutationError: Error) => {
       // L'échec doit se voir : un bouton qui ne fait rien en silence est le
@@ -59,7 +71,19 @@ export function PhotoManager({
         ? api.business.deleteVenueImage(entityId, imageId)
         : api.business.deleteOfferImage(entityId, imageId),
     onSettled: invalidate,
+    onSuccess: () => onChange?.(),
   });
+
+  const validateFile = (file: File): string | null => {
+    if (!ACCEPTED_TYPES.includes(file.type)) {
+      return 'Format non accepté. Utilise une image JPEG, PNG ou WebP.';
+    }
+    if (file.size > MAX_FILE_BYTES) {
+      const megabytes = (file.size / (1024 * 1024)).toFixed(1);
+      return `Fichier trop lourd (${megabytes} Mo) — 8 Mo maximum. Réduis-le avant de réessayer.`;
+    }
+    return null;
+  };
 
   const items = data?.items ?? [];
 
@@ -77,7 +101,11 @@ export function PhotoManager({
             disabled={upload.isPending}
             onChange={(event) => {
               const file = event.target.files?.[0];
-              if (file) upload.mutate(file);
+              if (file) {
+                const problem = validateFile(file);
+                if (problem) setError(problem);
+                else upload.mutate(file);
+              }
               // Réinitialisé pour permettre de renvoyer le même fichier après
               // une erreur — sans ça, onChange ne se déclenche pas.
               event.target.value = '';
