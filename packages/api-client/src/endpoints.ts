@@ -7,6 +7,7 @@ import type {
   BusinessMetricsDto,
   BusinessOfferDto,
   BusinessSlotDto,
+  BusinessVenueDto,
   CheckInResultDto,
   DiscoveryHomeDto,
   LeadDto,
@@ -15,6 +16,8 @@ import type {
   OfferCardPageDto,
   OfferDetailDto,
   SearchOffersQueryDto,
+  UpdateOfferDto,
+  UpdateVenueDto,
   ViewerDto,
 } from '@try/contracts';
 import type { ApiClient } from './http.js';
@@ -151,8 +154,23 @@ export function createEndpoints(client: ApiClient) {
         input: { status?: string; notes?: string | null; attributedRevenueAmount?: number | null },
       ) => client.patch<LeadDto>(`/v1/businesses/${businessId}/leads/${leadId}`, input),
 
+      venues: (businessId: string) =>
+        client.get<{ items: BusinessVenueDto[] }>(`/v1/businesses/${businessId}/venues`),
+
+      updateVenue: (venueId: string, input: Partial<UpdateVenueDto>) =>
+        client.patch<BusinessVenueDto>(`/v1/venues/${venueId}`, input),
+
+      withdrawVenue: (venueId: string) =>
+        client.post<{ status: 'DRAFT' }>(`/v1/venues/${venueId}/withdraw`, {}),
+
       offers: (businessId: string) =>
         client.get<{ items: BusinessOfferDto[] }>(`/v1/businesses/${businessId}/offers`),
+
+      updateOffer: (offerId: string, input: Partial<UpdateOfferDto>) =>
+        client.patch<BusinessOfferDto>(`/v1/offers/${offerId}`, input),
+
+      withdrawOffer: (offerId: string) =>
+        client.post<{ status: 'DRAFT' }>(`/v1/offers/${offerId}/withdraw`, {}),
 
       slots: (businessId: string, days = 7) =>
         client.get<{ items: BusinessSlotDto[] }>(`/v1/businesses/${businessId}/slots`, {

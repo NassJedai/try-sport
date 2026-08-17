@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, gte, lt, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, lt, lte, sql } from 'drizzle-orm';
 import { money, zonedTimeToUtc, zonedDayKey, DEFAULT_TIME_ZONE } from '@try/utils';
 import type { Clock, CurrencyCode, IanaTimeZone } from '@try/utils';
 import { schema } from '@try/database';
@@ -9,6 +9,7 @@ import type {
   BusinessMetricsDto,
   BusinessOfferDto,
   BusinessSlotDto,
+  BusinessVenueDto,
   LeadDto,
   ListBusinessBookingsQueryDto,
   ListLeadsQueryDto,
@@ -19,6 +20,7 @@ import { CLOCK } from '../../common/clock.js';
 import { ApiException } from '../../common/errors/api-exception.js';
 import { AuditService } from '../admin/audit.service.js';
 import { DomainEvents } from '../events/domain-events.js';
+import { toBusinessVenueDto } from './venue-dto.mapper.js';
 import { hasBusinessRole, type AuthenticatedUser } from '../../common/auth/current-user.js';
 
 @Injectable()
@@ -115,6 +117,72 @@ export class BusinessService {
       conversionRate: checkIns > 0 ? converted / checkIns : 0,
       attributedRevenue: money(conversions?.attributed_revenue ?? 0, 'EUR'),
       previousPeriod: null,
+    };
+  }
+
+  /**
+   * Les lieux du gérant, complétude comprise.
+   *
+   * Endpoint qui manquait : sans lui, un lieu `DRAFT` sans offre n'apparaît
+   * dans aucune vue (`listOffers` ne rend que des offres) et devient
+   * irrécupérable — le gérant ferme l'onglet au milieu de l'assistant et en
+   * recrée un.
+   *
+   * Trois requêtes groupées plutôt qu'une sous-requête corrélée par ligne : le
+   * nombre de lieux par établissement est petit, et `inArray` + `groupBy` évite
+   * le N+1 sans complexifier le SQL avec des agrégats imbriqués.
+   */
+  async listVenues(businessId: string): Promise<{ items: BusinessVenueDto[] }> {
+    const rows = await this.db
+      .select({ venue: schema.venues, vatNumber: schema.businesses.vatNumber })
+      .from(schema.venues)
+      .innerJoin(schema.businesses, eq(schema.businesses.id, schema.venues.businessId))
+      .where(eq(schema.venues.businessId, businessId))
+      .orderBy(schema.venues.createdAt);
+
+    if (rows.length === 0) return { items: [] };
+
+    const venueIds = rows.map((row) => row.venue.id);
+
+    const [offerCounts, imageCounts, categoryRows] = await Promise.all([
+      this.db
+        .select({ venueId: schema.offers.venueId, count: sql<number>`COUNT(*)::int` })
+        .from(schema.offers)
+        .where(inArray(schema.offers.venueId, venueIds))
+        .groupBy(schema.offers.venueId),
+      this.db
+        .select({ venueId: schema.venueImages.venueId, count: sql<number>`COUNT(*)::int` })
+        .from(schema.venueImages)
+        .where(inArray(schema.venueImages.venueId, venueIds))
+        .groupBy(schema.venueImages.venueId),
+      this.db
+        .select({
+          venueId: schema.venueCategories.venueId,
+          categoryId: schema.venueCategories.categoryId,
+        })
+        .from(schema.venueCategories)
+        .where(inArray(schema.venueCategories.venueId, venueIds)),
+    ]);
+
+    const offerCountByVenue = new Map(offerCounts.map((row) => [row.venueId, row.count]));
+    const imageCountByVenue = new Map(imageCounts.map((row) => [row.venueId, row.count]));
+    const categoriesByVenue = new Map<string, string[]>();
+    for (const row of categoryRows) {
+      const list = categoriesByVenue.get(row.venueId);
+      if (list) list.push(row.categoryId);
+      else categoriesByVenue.set(row.venueId, [row.categoryId]);
+    }
+
+    return {
+      items: rows.map(({ venue, vatNumber }) =>
+        toBusinessVenueDto({
+          venue,
+          vatNumber,
+          offerCount: offerCountByVenue.get(venue.id) ?? 0,
+          imageCount: imageCountByVenue.get(venue.id) ?? 0,
+          categoryIds: categoriesByVenue.get(venue.id) ?? [],
+        }),
+      ),
     };
   }
 

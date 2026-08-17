@@ -1,11 +1,25 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import {
   assertOfferTransition,
   assertVenueTransition,
+  missingVenueSubmissionRequirements,
+  offerEditRefusalReason,
+  reviewOfferFieldEdits,
+  reviewVenueFieldEdits,
+  venueEditRefusalReason,
   REJECTION_REASON_MIN_LENGTH,
+  VENUE_SUBMISSION_REQUIREMENT_ACTIONS_FR,
 } from '@try/contracts';
-import type { CreateBusinessDto, CreateOfferDto, CreateVenueDto } from '@try/contracts';
+import type {
+  BusinessOfferDto,
+  BusinessVenueDto,
+  CreateBusinessDto,
+  CreateOfferDto,
+  CreateVenueDto,
+  UpdateOfferDto,
+  UpdateVenueDto,
+} from '@try/contracts';
 import { slugify } from '@try/utils';
 import type { Clock } from '@try/utils';
 import { schema } from '@try/database';
@@ -14,6 +28,8 @@ import { DATABASE } from '../../common/database.module.js';
 import { CLOCK } from '../../common/clock.js';
 import { ApiException } from '../../common/errors/api-exception.js';
 import { AuditService } from '../admin/audit.service.js';
+import { DomainEvents } from '../events/domain-events.js';
+import { toBusinessVenueDto } from './venue-dto.mapper.js';
 import { hasBusinessRole, type AuthenticatedUser } from '../../common/auth/current-user.js';
 
 /**
@@ -30,6 +46,7 @@ export class OnboardingService {
     @Inject(DATABASE) private readonly db: Database,
     @Inject(CLOCK) private readonly clock: Clock,
     private readonly audit: AuditService,
+    private readonly events: DomainEvents,
   ) {}
 
   /**
@@ -195,22 +212,43 @@ export class OnboardingService {
     return { offerId: offer.id };
   }
 
-  /** Submits a venue for moderation. */
+  /**
+   * Submits a venue for moderation.
+   *
+   * Deux questions distinctes, dans cet ordre : le dossier est-il complet
+   * (`missingVenueSubmissionRequirements`, la même liste que l'assistant
+   * d'inscription et la vue admin) puis, seulement s'il l'est, ce statut
+   * autorise-t-il une soumission (`assertVenueTransition`, la machine à
+   * états). Les confondre ferait dire « transition invalide » à un dossier
+   * simplement incomplet, ou l'inverse.
+   */
   async submitVenue(input: { actor: AuthenticatedUser; venueId: string }): Promise<void> {
     const venue = await this.loadVenue(input.venueId);
     this.assertRole(input.actor, venue.businessId, 'MANAGER');
 
-    // A venue with nothing to book would waste a moderator's time.
-    const offers = await this.db
-      .select({ id: schema.offers.id })
+    const [offerCountRow] = await this.db
+      .select({ count: sql<number>`COUNT(*)::int` })
       .from(schema.offers)
-      .where(eq(schema.offers.venueId, input.venueId))
-      .limit(1);
+      .where(eq(schema.offers.venueId, input.venueId));
+    const [imageCountRow] = await this.db
+      .select({ count: sql<number>`COUNT(*)::int` })
+      .from(schema.venueImages)
+      .where(eq(schema.venueImages.venueId, input.venueId));
 
-    if (offers.length === 0) {
+    const missing = missingVenueSubmissionRequirements({
+      offerCount: offerCountRow?.count ?? 0,
+      imageCount: imageCountRow?.count ?? 0,
+      description: venue.description,
+      vatNumber: venue.vatNumber,
+    });
+
+    if (missing.length > 0) {
       throw new ApiException(
         'CONFLICT',
-        'Ajoute au moins une offre avant de soumettre ton lieu.',
+        `Ce lieu n’est pas encore prêt à être soumis : ${missing
+          .map((requirement) => VENUE_SUBMISSION_REQUIREMENT_ACTIONS_FR[requirement])
+          .join(' ')}`,
+        { missing },
       );
     }
 
@@ -219,7 +257,14 @@ export class OnboardingService {
     await this.db.transaction(async (tx) => {
       await tx
         .update(schema.venues)
-        .set({ status: 'PENDING_APPROVAL', updatedAt: this.clock.now() })
+        .set({
+          status: 'PENDING_APPROVAL',
+          // Une resoumission (depuis REJECTED) efface l'ancien motif : afficher
+          // « Refusée : photos manquantes » sur un dossier de nouveau en examen
+          // est contradictoire, et l'historique reste dans audit_logs.
+          rejectedReason: null,
+          updatedAt: this.clock.now(),
+        })
         .where(eq(schema.venues.id, input.venueId));
 
       await this.audit.record(tx, {
@@ -242,7 +287,12 @@ export class OnboardingService {
     await this.db.transaction(async (tx) => {
       await tx
         .update(schema.offers)
-        .set({ status: 'PENDING_APPROVAL', updatedAt: this.clock.now() })
+        .set({
+          status: 'PENDING_APPROVAL',
+          // Même règle que côté lieu : une resoumission repart sans l'ancien motif.
+          rejectedReason: null,
+          updatedAt: this.clock.now(),
+        })
         .where(eq(schema.offers.id, input.offerId));
 
       await this.audit.record(tx, {
@@ -254,6 +304,447 @@ export class OnboardingService {
         metadata: { from: offer.status },
       });
     });
+  }
+
+  /**
+   * Withdraws a venue submission back to `DRAFT` so its manager can correct it.
+   *
+   * `PENDING_APPROVAL → DRAFT` for `BUSINESS` already exists in the shared
+   * state machine (`moderation-state-machine.ts:33`); nothing to add there.
+   */
+  async withdrawVenue(input: { actor: AuthenticatedUser; venueId: string }): Promise<void> {
+    const venue = await this.loadVenue(input.venueId);
+    this.assertRole(input.actor, venue.businessId, 'MANAGER');
+
+    assertVenueTransition(venue.status, 'DRAFT', 'BUSINESS');
+
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(schema.venues)
+        .set({ status: 'DRAFT', updatedAt: this.clock.now() })
+        .where(eq(schema.venues.id, input.venueId));
+
+      await this.audit.record(tx, {
+        actorId: input.actor.id,
+        actorType: 'BUSINESS_MEMBER',
+        action: 'venue.withdraw',
+        entityType: 'venue',
+        entityId: input.venueId,
+        metadata: { from: venue.status },
+      });
+    });
+  }
+
+  /** Same withdrawal, for an offer. `PENDING_APPROVAL → DRAFT` also pre-exists (`:77`). */
+  async withdrawOffer(input: { actor: AuthenticatedUser; offerId: string }): Promise<void> {
+    const offer = await this.loadOffer(input.offerId);
+    this.assertRole(input.actor, offer.businessId, 'MANAGER');
+
+    assertOfferTransition(offer.status, 'DRAFT', 'BUSINESS');
+
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(schema.offers)
+        .set({ status: 'DRAFT', updatedAt: this.clock.now() })
+        .where(eq(schema.offers.id, input.offerId));
+
+      await this.audit.record(tx, {
+        actorId: input.actor.id,
+        actorType: 'BUSINESS_MEMBER',
+        action: 'offer.withdraw',
+        entityType: 'offer',
+        entityId: input.offerId,
+        metadata: { from: offer.status },
+      });
+    });
+  }
+
+  /**
+   * Updates a venue's own fields.
+   *
+   * `reviewVenueFieldEdits` classe les clés soumises en trois lots ; si
+   * `forbidden` n'est pas vide, tout le PATCH est refusé — pas d'écriture
+   * partielle sur ce qui était permis. `currency` n'existe pas côté lieu, donc
+   * pas de garde équivalente à celle de `updateOffer` ici.
+   *
+   * Fusion `key in dto ? dto.key : existing.key`, jamais `dto.key ?? existing.key`
+   * — voir le commentaire au-dessus de `updateVenueSchema` dans
+   * `@try/contracts`. `amenities: []` et `openingHours: []` sont des remises à
+   * zéro légitimes que `??` confondrait avec « absent ».
+   */
+  async updateVenue(input: {
+    actor: AuthenticatedUser;
+    venueId: string;
+    dto: UpdateVenueDto;
+  }): Promise<BusinessVenueDto> {
+    const dto = input.dto;
+    const now = this.clock.now();
+
+    const result = await this.db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(schema.venues)
+        .where(eq(schema.venues.id, input.venueId))
+        .for('update')
+        .limit(1);
+
+      if (!existing) throw ApiException.notFound('venue', input.venueId);
+      this.assertRole(input.actor, existing.businessId, 'MANAGER');
+
+      const verdict = reviewVenueFieldEdits(existing.status, Object.keys(dto));
+      if (verdict.forbidden.length > 0) {
+        throw new ApiException('CONFLICT', venueEditRefusalReason(existing.status) ?? undefined, {
+          fields: [...verdict.forbidden],
+        });
+      }
+
+      const [updated] = await tx
+        .update(schema.venues)
+        .set({
+          name: 'name' in dto ? dto.name : existing.name,
+          description: 'description' in dto ? (dto.description ?? null) : existing.description,
+          addressLine: 'addressLine' in dto ? dto.addressLine : existing.addressLine,
+          postalCode: 'postalCode' in dto ? dto.postalCode : existing.postalCode,
+          cityId: 'cityId' in dto ? dto.cityId : existing.cityId,
+          districtId: 'districtId' in dto ? dto.districtId : existing.districtId,
+          latitude: 'latitude' in dto ? dto.latitude : existing.latitude,
+          longitude: 'longitude' in dto ? dto.longitude : existing.longitude,
+          timeZone: 'timeZone' in dto ? dto.timeZone : existing.timeZone,
+          phone: 'phone' in dto ? (dto.phone ?? null) : existing.phone,
+          website: 'website' in dto ? (dto.website ?? null) : existing.website,
+          instagram: 'instagram' in dto ? (dto.instagram ?? null) : existing.instagram,
+          amenities: 'amenities' in dto ? dto.amenities : existing.amenities,
+          languages: 'languages' in dto ? dto.languages : existing.languages,
+          openingHours: 'openingHours' in dto ? dto.openingHours : existing.openingHours,
+          updatedAt: now,
+        })
+        .where(eq(schema.venues.id, input.venueId))
+        .returning();
+
+      if (!updated) throw ApiException.notFound('venue', input.venueId);
+
+      // `categoryIds: []` est refusé par le schéma (`.min(1)` survit à
+      // `partialUpdateOf`) : présent veut donc toujours dire "au moins une
+      // catégorie", jamais "vide-les toutes".
+      if ('categoryIds' in dto && dto.categoryIds) {
+        await tx
+          .delete(schema.venueCategories)
+          .where(eq(schema.venueCategories.venueId, input.venueId));
+        await tx.insert(schema.venueCategories).values(
+          dto.categoryIds.map((categoryId) => ({ venueId: input.venueId, categoryId })),
+        );
+      }
+
+      // Le titre des offres suit le nom de la salle — écriture SYSTEM, voir
+      // syncOfferTitlesWithVenueName ci-dessous pour la règle et ses limites.
+      const nameChanged = 'name' in dto && dto.name !== existing.name;
+      if (nameChanged) {
+        await this.syncOfferTitlesWithVenueName(tx, {
+          venueId: input.venueId,
+          oldName: existing.name,
+          newName: updated.name,
+          actorId: input.actor.id,
+        });
+      }
+
+      await this.audit.record(tx, {
+        actorId: input.actor.id,
+        actorType: 'BUSINESS_MEMBER',
+        action: 'venue.update',
+        entityType: 'venue',
+        entityId: input.venueId,
+        metadata: { fields: Object.keys(dto), notifyAdmin: verdict.notifyAdmin },
+      });
+
+      return { businessId: existing.businessId, notifyAdmin: [...verdict.notifyAdmin] };
+    });
+
+    // Émis après le commit, jamais dedans — voir refund-ledger.service.ts et
+    // la correction de LeadConverted (business.service.ts) : un abonné ne
+    // doit jamais apprendre un changement qu'un rollback peut encore annuler.
+    if (result.notifyAdmin.length > 0) {
+      this.events.emit('VenueIdentityChanged', {
+        venueId: input.venueId,
+        businessId: result.businessId,
+        actorId: input.actor.id,
+        fields: result.notifyAdmin,
+      });
+    }
+
+    return this.loadBusinessVenueDto(input.venueId);
+  }
+
+  /**
+   * Updates an offer's own fields.
+   *
+   * `currency` n'est jamais accepté ici, quel que soit le statut : la changer
+   * sans retoucher `priceAmount`/`referencePriceAmount` reprice l'offre en
+   * silence, et rien ne recalcule les montants dans l'autre devise. Refus
+   * explicite plutôt que silencieux — un gérant qui envoie `currency` doit
+   * savoir que ça n'a pas été pris en compte, pas le découvrir plus tard sur
+   * une facture.
+   */
+  async updateOffer(input: {
+    actor: AuthenticatedUser;
+    offerId: string;
+    dto: UpdateOfferDto;
+  }): Promise<BusinessOfferDto> {
+    const dto = input.dto;
+
+    if ('currency' in dto) {
+      throw new ApiException(
+        'VALIDATION_FAILED',
+        'La devise ne peut pas être modifiée après la création de l’offre. Crée une nouvelle offre si elle doit changer.',
+        { currency: ['not editable'] },
+      );
+    }
+
+    const now = this.clock.now();
+
+    await this.db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(schema.offers)
+        .where(eq(schema.offers.id, input.offerId))
+        .for('update')
+        .limit(1);
+
+      if (!existing) throw ApiException.notFound('offer', input.offerId);
+      this.assertRole(input.actor, existing.businessId, 'MANAGER');
+
+      const verdict = reviewOfferFieldEdits(existing.status, Object.keys(dto));
+      if (verdict.forbidden.length > 0) {
+        throw new ApiException('CONFLICT', offerEditRefusalReason(existing.status) ?? undefined, {
+          fields: [...verdict.forbidden],
+        });
+      }
+
+      // Castés explicitement plutôt que laissés à l'inférence du ternaire :
+      // le type produit par `partialUpdateOf` reste `number | undefined` aux
+      // yeux de TypeScript même à l'intérieur du bras `'priceAmount' in dto`
+      // (mapped type générique, pas un objet littéral — le narrowing par `in`
+      // ne s'y applique pas). La valeur à l'exécution est bien définie : c'est
+      // exactement ce que la garde `in` vérifie juste avant.
+      const priceAmount = 'priceAmount' in dto ? (dto.priceAmount as number) : existing.priceAmount;
+      const referencePriceAmount =
+        'referencePriceAmount' in dto
+          ? (dto.referencePriceAmount as number | null)
+          : existing.referencePriceAmount;
+
+      // Revalidé sur les valeurs FUSIONNÉES, jamais sur le corps brut de la
+      // requête : un PATCH qui ne touche que `referencePriceAmount` doit être
+      // comparé au `priceAmount` réellement stocké, comme à la création
+      // (onboarding.service.ts, `createOffer`).
+      if (referencePriceAmount !== null && referencePriceAmount < priceAmount) {
+        throw new ApiException(
+          'VALIDATION_FAILED',
+          'Le prix habituel doit être supérieur ou égal au prix découverte.',
+          { referencePriceAmount: ['must be >= priceAmount'] },
+        );
+      }
+
+      await tx
+        .update(schema.offers)
+        .set({
+          categoryId: 'categoryId' in dto ? dto.categoryId : existing.categoryId,
+          title: 'title' in dto ? dto.title : existing.title,
+          description: 'description' in dto ? dto.description : existing.description,
+          experienceType: 'experienceType' in dto ? dto.experienceType : existing.experienceType,
+          skillLevel: 'skillLevel' in dto ? dto.skillLevel : existing.skillLevel,
+          priceAmount,
+          referencePriceAmount,
+          /**
+           * Lu par l'expanseur de créneaux au moment où il matérialise un
+           * créneau (schedule.service.ts:41-42) — pas rétroactivement : les
+           * créneaux déjà matérialisés gardent leur `endAt` calculé avec
+           * l'ancienne durée. Décision assumée, pas un oubli : un participant
+           * déjà confirmé sur un créneau ne doit pas voir son horaire de fin
+           * bouger sous ses pieds. Seuls les créneaux matérialisés après ce
+           * PATCH utilisent la nouvelle durée.
+           */
+          durationMinutes: 'durationMinutes' in dto ? dto.durationMinutes : existing.durationMinutes,
+          capacity: 'capacity' in dto ? dto.capacity : existing.capacity,
+          languages: 'languages' in dto ? dto.languages : existing.languages,
+          amenities: 'amenities' in dto ? dto.amenities : existing.amenities,
+          whatToBring: 'whatToBring' in dto ? dto.whatToBring : existing.whatToBring,
+          conditions: 'conditions' in dto ? (dto.conditions ?? null) : existing.conditions,
+          cancellationPolicy:
+            'cancellationPolicy' in dto ? dto.cancellationPolicy : existing.cancellationPolicy,
+          trialRule: 'trialRule' in dto ? dto.trialRule : existing.trialRule,
+          updatedAt: now,
+        })
+        .where(eq(schema.offers.id, input.offerId));
+
+      await this.audit.record(tx, {
+        actorId: input.actor.id,
+        actorType: 'BUSINESS_MEMBER',
+        action: 'offer.update',
+        entityType: 'offer',
+        entityId: input.offerId,
+        metadata: { fields: Object.keys(dto) },
+      });
+    });
+
+    return this.loadBusinessOfferDto(input.offerId);
+  }
+
+  /**
+   * Le titre d'une offre suit le nom de sa salle — une écriture SYSTEM, pas
+   * une édition du gérant : `title` est classé `MODERATED` dans
+   * `editable-fields.ts` et ne passerait normalement pas la porte d'édition
+   * (`reviewOfferFieldEdits`), mais laisser une offre afficher le nom d'une
+   * salle qui n'existe plus est pire que la contourner ici, à la source du
+   * renommage.
+   *
+   * **Règle prudente, pas une garantie.** Ne remplace que les occurrences de
+   * l'ancien nom entourées de frontières de mot Unicode (`replaceWholeWord`,
+   * ci-dessous) : pas de coupure au milieu d'un autre mot, accents compris. Un
+   * gérant dont le titre contient par coïncidence le nom exact de sa salle
+   * sans rapport avec elle verrait quand même son titre réécrit à tort — c'est
+   * le risque assumé, documenté ici plutôt que caché. Les noms de moins de 3
+   * caractères sont ignorés : le risque de faux positif y dépasse le
+   * bénéfice.
+   */
+  private async syncOfferTitlesWithVenueName(
+    tx: Transaction,
+    input: { venueId: string; oldName: string; newName: string; actorId: string },
+  ): Promise<void> {
+    const oldName = input.oldName.trim();
+    const newName = input.newName.trim();
+    if (oldName.length < 3 || oldName === newName) return;
+
+    const offers = await tx
+      .select({ id: schema.offers.id, title: schema.offers.title })
+      .from(schema.offers)
+      .where(eq(schema.offers.venueId, input.venueId));
+
+    const now = this.clock.now();
+
+    for (const offer of offers) {
+      const renamed = OnboardingService.replaceWholeWord(offer.title, oldName, newName);
+      if (renamed === offer.title || renamed.length > 120) continue;
+
+      await tx
+        .update(schema.offers)
+        .set({ title: renamed, updatedAt: now })
+        .where(eq(schema.offers.id, offer.id));
+
+      await this.audit.record(tx, {
+        actorId: input.actorId,
+        actorType: 'SYSTEM',
+        action: 'offer.title_synced',
+        entityType: 'offer',
+        entityId: offer.id,
+        metadata: { from: offer.title, to: renamed, reason: 'venue.renamed', venueId: input.venueId },
+      });
+    }
+  }
+
+  /**
+   * Remplace `needle` par `replacement` dans `text`, uniquement aux frontières
+   * de mot Unicode (lettre ou chiffre de part et d'autre du bord du texte
+   * exclu).
+   *
+   * Pas de `\b` JavaScript : il ne connaît que `[A-Za-z0-9_]`, donc un nom
+   * commençant par une lettre accentuée (« Étoile ») ne déclenche aucune
+   * frontière en tête de chaîne et le remplacement échoue en silence. Ce
+   * balayage manuel traite toute lettre/chiffre Unicode — accents compris —
+   * comme caractère de mot.
+   */
+  private static replaceWholeWord(text: string, needle: string, replacement: string): string {
+    const isWordChar = (char: string | undefined): boolean =>
+      char !== undefined && /\p{L}|\p{N}/u.test(char);
+
+    const lowerText = text.toLowerCase();
+    const lowerNeedle = needle.toLowerCase();
+
+    let result = '';
+    let cursor = 0;
+    let changed = false;
+
+    while (cursor <= text.length - needle.length) {
+      if (lowerText.slice(cursor, cursor + lowerNeedle.length) === lowerNeedle) {
+        const before = text[cursor - 1];
+        const after = text[cursor + needle.length];
+        if (!isWordChar(before) && !isWordChar(after)) {
+          result += replacement;
+          cursor += needle.length;
+          changed = true;
+          continue;
+        }
+      }
+      result += text[cursor];
+      cursor += 1;
+    }
+    result += text.slice(cursor);
+
+    return changed ? result : text;
+  }
+
+  /** Rebuilds the owner-facing venue view after a write — fresh read, post-commit. */
+  private async loadBusinessVenueDto(venueId: string): Promise<BusinessVenueDto> {
+    const [row] = await this.db
+      .select({ venue: schema.venues, vatNumber: schema.businesses.vatNumber })
+      .from(schema.venues)
+      .innerJoin(schema.businesses, eq(schema.businesses.id, schema.venues.businessId))
+      .where(eq(schema.venues.id, venueId))
+      .limit(1);
+
+    if (!row) throw ApiException.notFound('venue', venueId);
+
+    const [[offerCountRow], [imageCountRow], categoryRows] = await Promise.all([
+      this.db
+        .select({ count: sql<number>`COUNT(*)::int` })
+        .from(schema.offers)
+        .where(eq(schema.offers.venueId, venueId)),
+      this.db
+        .select({ count: sql<number>`COUNT(*)::int` })
+        .from(schema.venueImages)
+        .where(eq(schema.venueImages.venueId, venueId)),
+      this.db
+        .select({ categoryId: schema.venueCategories.categoryId })
+        .from(schema.venueCategories)
+        .where(eq(schema.venueCategories.venueId, venueId)),
+    ]);
+
+    return toBusinessVenueDto({
+      venue: row.venue,
+      vatNumber: row.vatNumber,
+      offerCount: offerCountRow?.count ?? 0,
+      imageCount: imageCountRow?.count ?? 0,
+      categoryIds: categoryRows.map((category) => category.categoryId),
+    });
+  }
+
+  /** Rebuilds the owner-facing offer view after a write — same reasoning as above. */
+  private async loadBusinessOfferDto(offerId: string): Promise<BusinessOfferDto> {
+    const now = this.clock.now();
+
+    const [row] = await this.db
+      .select({
+        id: schema.offers.id,
+        title: schema.offers.title,
+        status: schema.offers.status,
+        venueId: schema.offers.venueId,
+        venueName: schema.venues.name,
+        priceAmount: schema.offers.priceAmount,
+        durationMinutes: schema.offers.durationMinutes,
+        capacity: schema.offers.capacity,
+        rejectedReason: schema.offers.rejectedReason,
+        upcomingSlots: sql<number>`(
+          SELECT COUNT(*) FROM slots s
+          WHERE s.offer_id = ${schema.offers.id}
+            AND s.start_at > ${now.toISOString()}
+            AND s.status IN ('OPEN', 'FULL')
+        )::int`,
+      })
+      .from(schema.offers)
+      .innerJoin(schema.venues, eq(schema.venues.id, schema.offers.venueId))
+      .where(eq(schema.offers.id, offerId))
+      .limit(1);
+
+    if (!row) throw ApiException.notFound('offer', offerId);
+    return row;
   }
 
   /** Pausing and resuming are the business's own controls; no moderation needed. */
@@ -284,14 +775,22 @@ export class OnboardingService {
     }
   }
 
+  /**
+   * `vatNumber` vit sur `businesses`, pas sur `venues` — d'où la jointure : la
+   * porte de soumission (`submitVenue`) a besoin des deux pour juger de la
+   * complétude d'un dossier.
+   */
   private async loadVenue(venueId: string) {
     const [venue] = await this.db
       .select({
         id: schema.venues.id,
         businessId: schema.venues.businessId,
         status: schema.venues.status,
+        description: schema.venues.description,
+        vatNumber: schema.businesses.vatNumber,
       })
       .from(schema.venues)
+      .innerJoin(schema.businesses, eq(schema.businesses.id, schema.venues.businessId))
       .where(eq(schema.venues.id, venueId))
       .limit(1);
 

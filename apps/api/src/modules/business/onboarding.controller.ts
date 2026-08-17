@@ -1,4 +1,4 @@
-import { Body, Controller, Param, Post } from '@nestjs/common';
+import { Body, Controller, Param, Patch, Post } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import {
@@ -6,8 +6,11 @@ import {
   createOfferSchema,
   createVenueSchema,
   recurringScheduleSchema,
+  updateOfferSchema,
+  updateVenueSchema,
   uuidSchema,
 } from '@try/contracts';
+import type { BusinessOfferDto, BusinessVenueDto } from '@try/contracts';
 import { CurrentUser, type AuthenticatedUser } from '../../common/auth/current-user.js';
 import { zodBody, ZodValidationPipe } from '../../common/zod-validation.pipe.js';
 import { OnboardingService } from './onboarding.service.js';
@@ -95,6 +98,54 @@ export class OnboardingController {
   ): Promise<{ status: 'PENDING_APPROVAL' }> {
     await this.onboarding.submitOffer({ actor: user, offerId });
     return { status: 'PENDING_APPROVAL' };
+  }
+
+  @Post('venues/:id/withdraw')
+  @ApiOperation({ summary: 'Withdraw a venue submission back to draft, to edit it' })
+  async withdrawVenue(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ZodValidationPipe(uuidSchema)) venueId: string,
+  ): Promise<{ status: 'DRAFT' }> {
+    await this.onboarding.withdrawVenue({ actor: user, venueId });
+    return { status: 'DRAFT' };
+  }
+
+  @Post('offers/:id/withdraw')
+  @ApiOperation({ summary: 'Withdraw an offer submission back to draft, to edit it' })
+  async withdrawOffer(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ZodValidationPipe(uuidSchema)) offerId: string,
+  ): Promise<{ status: 'DRAFT' }> {
+    await this.onboarding.withdrawOffer({ actor: user, offerId });
+    return { status: 'DRAFT' };
+  }
+
+  @Patch('venues/:id')
+  @ApiOperation({ summary: "Update a venue's own fields; identity changes on a live venue notify admin" })
+  updateVenue(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ZodValidationPipe(uuidSchema)) venueId: string,
+    @Body(zodBody(updateVenueSchema)) body: unknown,
+  ): Promise<BusinessVenueDto> {
+    return this.onboarding.updateVenue({
+      actor: user,
+      venueId,
+      dto: body as Parameters<OnboardingService['updateVenue']>[0]['dto'],
+    });
+  }
+
+  @Patch('offers/:id')
+  @ApiOperation({ summary: "Update an offer's own fields; moderated fields are frozen once live" })
+  updateOffer(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ZodValidationPipe(uuidSchema)) offerId: string,
+    @Body(zodBody(updateOfferSchema)) body: unknown,
+  ): Promise<BusinessOfferDto> {
+    return this.onboarding.updateOffer({
+      actor: user,
+      offerId,
+      dto: body as Parameters<OnboardingService['updateOffer']>[0]['dto'],
+    });
   }
 
   @Post('offers/:id/pause')

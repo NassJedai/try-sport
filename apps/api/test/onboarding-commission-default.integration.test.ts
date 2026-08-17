@@ -38,7 +38,10 @@ describeIfDatabase('inscription → taux de commission par défaut', () => {
 
   function buildOnboarding(): OnboardingService {
     const audit = new AuditService(ctx.db);
-    return new OnboardingService(ctx.db, { now: () => new Date() } as never, audit);
+    // Ce test n'exerce que createBusiness ; les événements ne jouent aucun
+    // rôle ici, d'où la maquette silencieuse plutôt qu'un vrai DomainEvents.
+    const events = { emit: () => undefined } as never;
+    return new OnboardingService(ctx.db, { now: () => new Date() } as never, audit, events);
   }
 
   it('inscrit une nouvelle salle à 2500 points de base (25 %), jamais codé en dur dans le service', async () => {

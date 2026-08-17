@@ -12,6 +12,7 @@ import type {
   BusinessMetricsDto,
   BusinessOfferDto,
   BusinessSlotDto,
+  BusinessVenueDto,
   LeadDto,
 } from '@try/contracts';
 import { CurrentUser, type AuthenticatedUser } from '../../common/auth/current-user.js';
@@ -46,6 +47,17 @@ export class BusinessController {
       from: new Date(dto.from),
       to: new Date(`${dto.to}T23:59:59.999Z`),
     });
+  }
+
+  @Get(':businessId/venues')
+  @ApiOperation({ summary: 'Own venues with moderation status and submission readiness' })
+  venues(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('businessId', new ZodValidationPipe(uuidSchema)) businessId: string,
+  ): Promise<{ items: BusinessVenueDto[] }> {
+    // STAFF voit ; les mutations (PATCH, retrait) exigent MANAGER, dans OnboardingService.
+    this.business.assertMember(user, businessId, 'STAFF');
+    return this.business.listVenues(businessId);
   }
 
   @Get(':businessId/offers')

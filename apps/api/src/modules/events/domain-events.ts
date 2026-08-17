@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import { Inject, Injectable } from '@nestjs/common';
 import { getRequestId } from '@try/logger';
 import type { Logger } from '@try/logger';
+import type { OfferStatus, VenueStatus } from '@try/contracts';
 import { LOGGER } from '../../common/logger.module.js';
 
 /**
@@ -61,6 +62,46 @@ export interface DomainEventMap {
     cumulativeRefundedMinor: number;
     platformFeeReversedMinor: number;
     isFullRefund: boolean;
+  };
+  /**
+   * Un champ `IDENTITY` (nom, adresse, fuseau…) vient de changer sur un lieu
+   * déjà en ligne (`ACTIVE`/`PAUSED`) — voir `editable-fields.ts`. L'écriture
+   * est déjà passée, ce n'est jamais une décision : c'est une notification.
+   * Émis par `OnboardingService.updateVenue`, après commit.
+   */
+  VenueIdentityChanged: {
+    venueId: string;
+    businessId: string;
+    /** Qui a fait le changement — un membre du gérant, jamais le système. */
+    actorId: string;
+    /** Les champs `IDENTITY` effectivement modifiés dans cette requête. */
+    fields: readonly string[];
+  };
+  /**
+   * Décision de modération admin sur un lieu — approbation, refus, suspension,
+   * réintégration. Émis par `ModerationService.decideVenue` (lot 2), pas ici :
+   * ce fichier ne fait que déclarer la forme que le lot 2 doit respecter.
+   */
+  VenueModerationDecided: {
+    venueId: string;
+    businessId: string;
+    decision: 'APPROVE' | 'REJECT' | 'SUSPEND' | 'REINSTATE';
+    status: VenueStatus;
+    /** Motif de refus ou de suspension ; `null` sinon. */
+    reason: string | null;
+  };
+  /**
+   * Décision de modération admin sur une offre. Émis par
+   * `ModerationService.decideOffer` (lot 2), déclaré ici pour la même raison
+   * que `VenueModerationDecided`.
+   */
+  OfferModerationDecided: {
+    offerId: string;
+    venueId: string;
+    businessId: string;
+    decision: 'APPROVE' | 'REJECT' | 'PAUSE';
+    status: OfferStatus;
+    reason: string | null;
   };
 }
 

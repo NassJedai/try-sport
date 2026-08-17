@@ -6,7 +6,7 @@ import {
   type ArgumentsHost,
   type ExceptionFilter,
 } from '@nestjs/common';
-import { ERROR_MESSAGES_FR } from '@try/contracts';
+import { ERROR_MESSAGES_FR, InvalidModerationTransitionError } from '@try/contracts';
 import type { ApiErrorBody, ErrorCode } from '@try/contracts';
 import { getRequestId } from '@try/logger';
 import type { Logger } from '@try/logger';
@@ -80,6 +80,19 @@ export class ApiExceptionFilter implements ExceptionFilter {
           requestId,
           details: formatZodIssues(exception),
         },
+        logLevel: 'warn',
+      };
+    }
+
+    // Une transition de modération illégale (double soumission, retrait d'un
+    // lieu déjà actif…) est un conflit métier, pas une panne : sans cette
+    // branche l'erreur tombe dans le générique ci-dessous et un gérant qui
+    // double-clique sur « soumettre » voit une 500 « Une erreur est
+    // survenue » là où « Actualise et réessaie » est le message correct.
+    if (exception instanceof InvalidModerationTransitionError) {
+      return {
+        status: HttpStatus.CONFLICT,
+        body: { code: 'CONFLICT', message: ERROR_MESSAGES_FR.CONFLICT, requestId },
         logLevel: 'warn',
       };
     }
