@@ -1,5 +1,6 @@
 import { BOOKING_PAYMENT_STATUSES } from './enums.js';
 import type { BookingPaymentStatus, PaymentStatus, ReservationStatus } from './enums.js';
+import { paymentCaptureObservation } from './payment-capture.js';
 
 /**
  * Projection of a payment onto the booking that carries it.
@@ -61,9 +62,17 @@ export function isRefundedBookingPayment(status: BookingPaymentStatus): boolean 
   return status === 'REFUNDED' || status === 'PARTIALLY_REFUNDED';
 }
 
-/** True while the booking is still waiting on money from the customer. */
+/**
+ * True while the booking is still waiting on money from the customer.
+ *
+ * Derived from `payment-capture.ts` rather than restating the pair inline: that
+ * pair is one half of the capture partition, and a fourth hand-written copy of
+ * it inside `contracts` would be the very drift this vocabulary exists to stop.
+ * `NOT_REQUIRED` is the one value with no payment row behind it — a free trial
+ * waits on nothing.
+ */
 export function isOutstandingBookingPayment(status: BookingPaymentStatus): boolean {
-  return status === 'REQUIRES_PAYMENT' || status === 'PROCESSING';
+  return status !== 'NOT_REQUIRED' && paymentCaptureObservation(status) === 'IN_FLIGHT';
 }
 
 export function isBookingPaymentStatus(value: string): value is BookingPaymentStatus {
