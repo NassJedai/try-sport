@@ -1,5 +1,14 @@
-import { sql } from 'drizzle-orm';
-import { DEFAULT_TIME_ZONE, addMinutes, generateCheckInCode, zonedTimeToUtc } from '@try/utils';
+import { randomUUID } from 'node:crypto';
+import { inArray, sql } from 'drizzle-orm';
+import {
+  DEFAULT_TIME_ZONE,
+  addMinutes,
+  applyBasisPoints,
+  generateCheckInCode,
+  money,
+  zonedTimeToUtc,
+} from '@try/utils';
+import type { CurrencyCode } from '@try/utils';
 import { createDatabase } from '../client.js';
 import * as schema from '../schema/index.js';
 import { BRUSSELS_DISTRICTS, BUSINESSES, CATEGORIES, OFFERS, VENUES } from './seed-data.js';
@@ -567,6 +576,354 @@ async function main(): Promise<void> {
     await db.insert(schema.leads).values(leadValues).onConflictDoNothing();
   }
 
+  console.log('Seeding payments…');
+  /**
+   * `payments` was truncated above but never repopulated: 271 reservations,
+   * zero payments, so the admin console and its revenue aggregates
+   * (`moderation.service.ts#overview`, `admin-browse.service.ts#payments`) had
+   * nothing to show. This section attaches a payment to every reservation that
+   * charged the user something, in every state the product needs to tell apart
+   * — see `@try/contracts/payment-capture.ts` for why these five are the ones
+   * that matter: SUCCEEDED is the plain case, PARTIALLY_REFUNDED and REFUNDED
+   * prove a net commission that differs from the gross (down to a genuine
+   * zero), and FAILED/REQUIRES_PAYMENT prove the opposite — a payment that
+   * never captured anything, where the right answer is "no commission ever
+   * existed", not "zero".
+   */
+  const businessById = new Map(businessRows.map((row) => [row.id, row]));
+
+  /** Recomputed from the business's own contracted rate — never a literal, exactly
+   *  like `PaymentService.createIntentForReservation`. */
+  function splitCommission(
+    grossAmount: number,
+    businessId: string,
+    currency: CurrencyCode,
+  ): { platformFeeAmount: number; merchantAmount: number } {
+    const business = businessById.get(businessId);
+    if (!business) throw new Error(`Unknown business ${businessId}`);
+    const gross = money(grossAmount, currency);
+    const platformFee = applyBasisPoints(gross, business.commissionBasisPoints);
+    return { platformFeeAmount: platformFee.amount, merchantAmount: gross.amount - platformFee.amount };
+  }
+
+  /** Shaped like a Stripe id (prefix + hex) without claiming a real charge happened. */
+  function fakeProviderId(prefix: string): string {
+    return `${prefix}_seed_${randomUUID().replace(/-/g, '')}`;
+  }
+
+  const PARTIAL_REFUND_COUNT = 4;
+  const FULL_REFUND_COUNT = 4;
+
+  // Only reservations that actually charged something get a payment; the
+  // FREE_TRIAL offers correctly stay payment-less, exactly like production.
+  const paidHistoricReservations = insertedReservations.filter(
+    (reservation) => reservation.priceAmount > 0,
+  );
+  const partiallyRefundedReservations = paidHistoricReservations.slice(0, PARTIAL_REFUND_COUNT);
+  const fullyRefundedReservations = paidHistoricReservations.slice(
+    PARTIAL_REFUND_COUNT,
+    PARTIAL_REFUND_COUNT + FULL_REFUND_COUNT,
+  );
+  // The demo check-in reservation stays a plain success: flipping it to a
+  // refund would break the "check someone in at the door" demo it exists for.
+  const succeededReservations = [
+    ...(demoReservation.priceAmount > 0 ? [demoReservation] : []),
+    ...paidHistoricReservations.slice(PARTIAL_REFUND_COUNT + FULL_REFUND_COUNT),
+  ];
+
+  const paymentValues: (typeof schema.payments.$inferInsert)[] = [];
+  const refundValues: (typeof schema.refunds.$inferInsert)[] = [];
+
+  for (const reservation of succeededReservations) {
+    const currency = reservation.currency as CurrencyCode;
+    const { platformFeeAmount, merchantAmount } = splitCommission(
+      reservation.priceAmount,
+      reservation.businessId,
+      currency,
+    );
+    paymentValues.push({
+      reservationId: reservation.id,
+      userId: reservation.userId,
+      businessId: reservation.businessId,
+      status: 'SUCCEEDED',
+      provider: 'STRIPE',
+      providerPaymentIntentId: fakeProviderId('pi'),
+      providerChargeId: fakeProviderId('ch'),
+      amount: reservation.priceAmount,
+      platformFeeAmount,
+      merchantAmount,
+      currency,
+      succeededAt: reservation.confirmedAt ?? reservation.createdAt,
+      createdAt: reservation.createdAt,
+    });
+  }
+
+  // Varied fractions so the partial-refund examples do not all look identical.
+  const REFUND_FRACTIONS = [0.3, 0.45, 0.5, 0.65];
+  for (const [index, reservation] of partiallyRefundedReservations.entries()) {
+    const currency = reservation.currency as CurrencyCode;
+    const { platformFeeAmount, merchantAmount } = splitCommission(
+      reservation.priceAmount,
+      reservation.businessId,
+      currency,
+    );
+    const fraction = REFUND_FRACTIONS[index % REFUND_FRACTIONS.length] ?? 0.4;
+    // Strictly between 0 and the gross: a refund of the full amount belongs to
+    // the REFUNDED case below, not to this one.
+    const refundedAmount = Math.min(
+      reservation.priceAmount - 1,
+      Math.max(1, Math.round(reservation.priceAmount * fraction)),
+    );
+    // Same proportional split, recomputed from the (smaller) refunded amount —
+    // never derived by subtracting basis points a second time. Because it reuses
+    // the exact rounding `applyBasisPoints` uses on the gross, the split can
+    // never exceed what was captured (payments_refund_split_within_capture).
+    const refundedSplit = splitCommission(refundedAmount, reservation.businessId, currency);
+    const paymentId = randomUUID();
+    const succeededAt = reservation.confirmedAt ?? reservation.createdAt;
+
+    paymentValues.push({
+      id: paymentId,
+      reservationId: reservation.id,
+      userId: reservation.userId,
+      businessId: reservation.businessId,
+      status: 'PARTIALLY_REFUNDED',
+      provider: 'STRIPE',
+      providerPaymentIntentId: fakeProviderId('pi'),
+      providerChargeId: fakeProviderId('ch'),
+      amount: reservation.priceAmount,
+      platformFeeAmount,
+      merchantAmount,
+      refundedAmount,
+      refundedPlatformFeeAmount: refundedSplit.platformFeeAmount,
+      refundedMerchantAmount: refundedSplit.merchantAmount,
+      currency,
+      succeededAt,
+      createdAt: reservation.createdAt,
+    });
+
+    refundValues.push({
+      paymentId,
+      reservationId: reservation.id,
+      provider: 'STRIPE',
+      providerRefundId: fakeProviderId('re'),
+      amount: refundedAmount,
+      currency,
+      reason: 'requested_by_customer',
+      initiatedByUserId: demoAdmin.id,
+      status: 'SUCCEEDED',
+      platformFeeAmount: refundedSplit.platformFeeAmount,
+      merchantAmount: refundedSplit.merchantAmount,
+      succeededAt: addMinutes(succeededAt, 2 * 24 * 60),
+    });
+  }
+
+  for (const reservation of fullyRefundedReservations) {
+    const currency = reservation.currency as CurrencyCode;
+    const { platformFeeAmount, merchantAmount } = splitCommission(
+      reservation.priceAmount,
+      reservation.businessId,
+      currency,
+    );
+    const paymentId = randomUUID();
+    const succeededAt = reservation.confirmedAt ?? reservation.createdAt;
+
+    paymentValues.push({
+      id: paymentId,
+      reservationId: reservation.id,
+      userId: reservation.userId,
+      businessId: reservation.businessId,
+      status: 'REFUNDED',
+      provider: 'STRIPE',
+      providerPaymentIntentId: fakeProviderId('pi'),
+      providerChargeId: fakeProviderId('ch'),
+      amount: reservation.priceAmount,
+      platformFeeAmount,
+      merchantAmount,
+      // The full gross comes back — net commission is a genuine zero, not the
+      // absence of a payment. See netPlatformFee in admin-browse.service.ts.
+      refundedAmount: reservation.priceAmount,
+      refundedPlatformFeeAmount: platformFeeAmount,
+      refundedMerchantAmount: merchantAmount,
+      currency,
+      succeededAt,
+      createdAt: reservation.createdAt,
+    });
+
+    refundValues.push({
+      paymentId,
+      reservationId: reservation.id,
+      provider: 'STRIPE',
+      providerRefundId: fakeProviderId('re'),
+      amount: reservation.priceAmount,
+      currency,
+      reason: 'requested_by_customer',
+      initiatedByUserId: demoAdmin.id,
+      status: 'SUCCEEDED',
+      platformFeeAmount,
+      merchantAmount,
+      succeededAt: addMinutes(succeededAt, 2 * 24 * 60),
+    });
+  }
+
+  // A completed session that gets refunded in full is still a session that
+  // happened: COMPLETED -> REFUNDED is a real transition in
+  // packages/contracts/src/reservation-state-machine.ts ("Support refunded a
+  // completed session"), not a reinterpretation of the booking as if it never
+  // occurred. trial_history mirrors the reservation's status here exactly like
+  // every other transition already applied in this seed (see the check-in demo
+  // above and CheckInService in production).
+  if (fullyRefundedReservations.length > 0) {
+    const fullyRefundedIds = fullyRefundedReservations.map((reservation) => reservation.id);
+    await db
+      .update(schema.reservations)
+      .set({ status: 'REFUNDED' })
+      .where(inArray(schema.reservations.id, fullyRefundedIds));
+    await db
+      .update(schema.trialHistory)
+      .set({ status: 'REFUNDED' })
+      .where(inArray(schema.trialHistory.reservationId, fullyRefundedIds));
+  }
+
+  /**
+   * FAILED and REQUIRES_PAYMENT cannot honestly sit on any of the reservations
+   * created so far — every one of them is either the upcoming check-in demo or
+   * a past COMPLETED session, and neither is what an abandoned or declined
+   * payment looks like. A handful of dedicated PAYMENT_PENDING reservations —
+   * the exact status `BookingService.create` gives a paid booking before its
+   * PaymentIntent resolves — give these two cases something honest to attach
+   * to, future slots well past SLOT_HORIZON_DAYS so they can never collide with
+   * a schedule-generated one.
+   */
+  interface AbandonedCartSpec {
+    status: 'FAILED' | 'REQUIRES_PAYMENT';
+    failureCode: string | null;
+    failureMessage: string | null;
+  }
+  const ABANDONED_CART_SPECS: AbandonedCartSpec[] = [
+    { status: 'FAILED', failureCode: 'card_declined', failureMessage: 'Your card was declined.' },
+    {
+      status: 'FAILED',
+      failureCode: 'insufficient_funds',
+      failureMessage: 'Your card has insufficient funds.',
+    },
+    { status: 'FAILED', failureCode: 'expired_card', failureMessage: 'Your card has expired.' },
+    { status: 'FAILED', failureCode: 'do_not_honor', failureMessage: 'Your card was declined.' },
+    { status: 'REQUIRES_PAYMENT', failureCode: null, failureMessage: null },
+    { status: 'REQUIRES_PAYMENT', failureCode: null, failureMessage: null },
+    { status: 'REQUIRES_PAYMENT', failureCode: null, failureMessage: null },
+    { status: 'REQUIRES_PAYMENT', failureCode: null, failureMessage: null },
+  ];
+
+  const paidOfferRows = offerRows.filter((offer) => offer.priceAmount > 0);
+  const abandonedTrialHistoryValues: (typeof schema.trialHistory.$inferInsert)[] = [];
+
+  for (const [index, spec] of ABANDONED_CART_SPECS.entries()) {
+    const offerRow = paidOfferRows[index % paidOfferRows.length];
+    const venue = venueRows.find((row) => row.id === offerRow?.venueId);
+    if (!offerRow || !venue) continue;
+    const consumer = consumers[(index * 5 + 3) % consumers.length];
+    if (!consumer) continue;
+
+    const dayOffset = SLOT_HORIZON_DAYS + 5 + index;
+    const day = new Date(now.getTime() + dayOffset * 86_400_000);
+    const startAt = zonedTimeToUtc(
+      {
+        year: day.getUTCFullYear(),
+        month: day.getUTCMonth() + 1,
+        day: day.getUTCDate(),
+        hour: 18,
+        minute: 0,
+      },
+      venue.timeZone,
+    );
+    const endAt = addMinutes(startAt, offerRow.durationMinutes);
+
+    const [slot] = await db
+      .insert(schema.slots)
+      .values({
+        offerId: offerRow.id,
+        venueId: venue.id,
+        startAt,
+        endAt,
+        capacity: offerRow.capacity,
+        reservedCount: 1,
+        status: 'OPEN',
+      })
+      .returning();
+    if (!slot) throw new Error('Failed to insert abandoned-cart slot');
+
+    const [reservation] = await db
+      .insert(schema.reservations)
+      .values({
+        userId: consumer.id,
+        slotId: slot.id,
+        offerId: offerRow.id,
+        venueId: venue.id,
+        businessId: offerRow.businessId,
+        status: 'PAYMENT_PENDING',
+        priceAmount: offerRow.priceAmount,
+        currency: offerRow.currency,
+        trialRule: offerRow.trialRule,
+        slotStartAt: startAt,
+        slotEndAt: endAt,
+      })
+      .returning();
+    if (!reservation) throw new Error('Failed to insert abandoned-cart reservation');
+
+    abandonedTrialHistoryValues.push({
+      userId: consumer.id,
+      businessId: offerRow.businessId,
+      venueId: venue.id,
+      offerId: offerRow.id,
+      reservationId: reservation.id,
+      reservedAt: reservation.createdAt,
+      status: 'PAYMENT_PENDING',
+    });
+
+    const currency = offerRow.currency as CurrencyCode;
+    const { platformFeeAmount, merchantAmount } = splitCommission(
+      offerRow.priceAmount,
+      offerRow.businessId,
+      currency,
+    );
+    paymentValues.push({
+      reservationId: reservation.id,
+      userId: consumer.id,
+      businessId: offerRow.businessId,
+      status: spec.status,
+      provider: 'STRIPE',
+      providerPaymentIntentId: fakeProviderId('pi'),
+      // Only ever set on a captured payment (PaymentService.markSucceeded) —
+      // never written when the intent is still pending or was declined.
+      providerChargeId: null,
+      amount: offerRow.priceAmount,
+      platformFeeAmount,
+      merchantAmount,
+      currency,
+      failureCode: spec.failureCode,
+      failureMessage: spec.failureMessage,
+      succeededAt: null,
+      createdAt: reservation.createdAt,
+    });
+  }
+
+  if (abandonedTrialHistoryValues.length > 0) {
+    await db.insert(schema.trialHistory).values(abandonedTrialHistoryValues);
+  }
+
+  for (let index = 0; index < paymentValues.length; index += CHUNK) {
+    await db.insert(schema.payments).values(paymentValues.slice(index, index + CHUNK));
+  }
+  if (refundValues.length > 0) {
+    await db.insert(schema.refunds).values(refundValues);
+  }
+  console.log(
+    `  ${paymentValues.length} payments (${succeededReservations.length} succeeded, ` +
+      `${partiallyRefundedReservations.length} partially refunded, ${fullyRefundedReservations.length} refunded, ` +
+      `${ABANDONED_CART_SPECS.length} failed/abandoned), ${refundValues.length} refund ledger entries`,
+  );
+
   console.log('Recomputing venue rating aggregates…');
   // Denormalised aggregates must match the rows that were just inserted.
   await db.execute(sql`
@@ -615,6 +972,7 @@ async function main(): Promise<void> {
   console.log(`  ${businessRows.length} businesses, ${venueRows.length} venues`);
   console.log(`  ${offerRows.length} offers, ${slotCount} slots`);
   console.log(`  ${insertedReservations.length} historic bookings with reviews`);
+  console.log(`  ${paymentValues.length} payments, ${refundValues.length} refund ledger entries`);
   console.log(`  ${media.offers} offer images, ${media.venues} venue images`);
   console.log('\nDemo accounts (dev/staging only, OTP is printed by the API in dev):');
   console.log(`  consumer: ${DEMO_ACCOUNTS.user}`);
