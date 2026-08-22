@@ -10,7 +10,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     include: ['**/*.integration.test.ts'],
-    exclude: ['**/node_modules/**', '**/dist/**'],
+    exclude: ['**/node_modules/**', '**/dist/**', '**/.claude/**'],
     // Booking concurrency tests contend on the same rows on purpose.
     fileParallelism: false,
     testTimeout: 30_000,

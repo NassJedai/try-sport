@@ -13,6 +13,6 @@ export default defineConfig({
   test: {
     projects: ['packages/*', 'apps/*'],
     // Integration suites talk to a real database and are opt-in; see test:integration.
-    exclude: ['**/node_modules/**', '**/dist/**', '**/*.integration.test.ts'],
+    exclude: ['**/node_modules/**', '**/dist/**', '**/.claude/**', '**/*.integration.test.ts'],
   },
 });
