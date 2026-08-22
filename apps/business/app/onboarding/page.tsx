@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { queryKeys } from '@try/api-client';
+import { ApiError, queryKeys } from '@try/api-client';
+import type { UpdateBusinessInput } from '@try/api-client';
 import type { ExperienceType } from '@try/contracts';
 import { parseDecimalToMinor, toDecimalString, zonedDayKey } from '@try/utils';
 import { api, apiClient, tokenStore } from '@/lib/api';
@@ -525,6 +526,8 @@ export default function OnboardingPage() {
   const [venueDescriptionSavedValue, setVenueDescriptionSavedValue] = useState<string | null>(null);
   const [legalName, setLegalName] = useState(draft.legalName ?? '');
   const [vatNumber, setVatNumber] = useState(draft.vatNumber ?? '');
+  const [legalNameSavedValue, setLegalNameSavedValue] = useState<string | null>(null);
+  const [vatNumberSavedValue, setVatNumberSavedValue] = useState<string | null>(null);
 
   useEffect(() => {
     // Reprise directe sur l'écran 7 : la description déjà enregistrée côté
@@ -544,6 +547,78 @@ export default function OnboardingPage() {
       void queryClient.invalidateQueries({ queryKey: [...queryKeys.business.all, businessId, 'venues'] });
     },
     onError: handleMutationError,
+  });
+
+  /**
+   * La raison sociale et la TVA ne vivent pas sur `venuesQuery` (qui n'expose
+   * que `missingRequirements`, pas les valeurs) mais sur l'établissement —
+   * `GET /v1/businesses/:businessId`. Chargée seulement à partir de l'écran 7,
+   * comme `slotsQuery` plus haut : aucun écran antérieur n'en a besoin.
+   */
+  const businessDetailQuery = useQuery({
+    queryKey: [...queryKeys.business.all, businessId, 'detail'],
+    queryFn: () => api.business.get(businessId as string),
+    enabled: Boolean(businessId) && (step === 'complete-dossier' || step === 'review'),
+  });
+
+  useEffect(() => {
+    // Même logique que la description ci-dessus : ce qui est déjà enregistré
+    // côté serveur prend le pas sur un brouillon local plus ancien, une seule
+    // fois, sans écraser une saisie en cours.
+    if (businessDetailQuery.data?.legalName && legalName === '') {
+      setLegalName(businessDetailQuery.data.legalName);
+      setLegalNameSavedValue(businessDetailQuery.data.legalName);
+    }
+    if (businessDetailQuery.data?.vatNumber && vatNumber === '') {
+      setVatNumber(businessDetailQuery.data.vatNumber);
+      setVatNumberSavedValue(businessDetailQuery.data.vatNumber);
+    }
+  }, [businessDetailQuery.data?.legalName, businessDetailQuery.data?.vatNumber, legalName, vatNumber]);
+
+  const saveBusinessIdentity = useMutation({
+    mutationFn: () => {
+      const trimmedLegalName = legalName.trim();
+      const trimmedVat = vatNumber.trim();
+      const body: UpdateBusinessInput = {};
+      // Jamais `countryCode` : il se déduit du numéro de TVA côté serveur, et
+      // l'envoyer déclenche un 400 explicite (`BusinessService.updateBusiness`).
+      if (trimmedLegalName) body.legalName = trimmedLegalName;
+      if (trimmedVat) body.vatNumber = trimmedVat;
+      return api.business.update(businessId as string, body);
+    },
+    onSuccess: (result) => {
+      clearErrors();
+      /**
+       * Le serveur normalise la TVA (« be 0417.497.106 » devient
+       * « BE0417497106 ») — on réaffiche ce qu'il a retenu, jamais la saisie
+       * brute, sinon le gérant croit que sa saisie n'a pas été prise en compte.
+       */
+      setLegalName(result.legalName ?? '');
+      setLegalNameSavedValue(result.legalName ?? '');
+      setVatNumber(result.vatNumber ?? '');
+      setVatNumberSavedValue(result.vatNumber ?? '');
+      updateDraft({ legalName: undefined, vatNumber: undefined });
+      // `missingRequirements` (dérivé de la liste des lieux, pas de cette
+      // réponse) doit perdre VALID_VAT_NUMBER ici — sans ce rafraîchissement le
+      // bouton d'envoi de l'écran 8 resterait désactivé malgré une TVA
+      // enregistrée avec succès.
+      void queryClient.invalidateQueries({ queryKey: [...queryKeys.business.all, businessId, 'venues'] });
+      void queryClient.invalidateQueries({ queryKey: [...queryKeys.business.all, businessId, 'detail'] });
+    },
+    onError: (err) => {
+      // `PATCH /v1/businesses/:id` est réservé au propriétaire
+      // (`BusinessService.updateBusiness`) : un gérant secondaire (MANAGER)
+      // reçoit un FORBIDDEN générique — sans ce message dédié, il croirait le
+      // produit cassé plutôt que comprendre qu'il faut le compte propriétaire.
+      if (err instanceof ApiError && err.code === 'FORBIDDEN') {
+        setFieldErrors({});
+        setGeneralError(
+          'Seul le compte propriétaire de l’établissement peut enregistrer la raison sociale et le numéro de TVA. Demande-lui de s’en charger, ou connecte-toi avec son compte.',
+        );
+        return;
+      }
+      handleMutationError(err);
+    },
   });
 
   const refreshVenueCounters = () =>
@@ -851,6 +926,25 @@ export default function OnboardingPage() {
           onLegalNameChange={withDraft('legalName', setLegalName)}
           vatNumber={vatNumber}
           onVatNumberChange={withDraft('vatNumber', setVatNumber)}
+          onSaveIdentity={() => saveBusinessIdentity.mutate()}
+          isSavingIdentity={saveBusinessIdentity.isPending}
+          // Deux notions distinctes, longtemps confondues ici : « rien à
+          // enregistrer » désactive le bouton, « un enregistrement a réussi »
+          // affiche la coche. Sans le premier terme, un gérant arrivant sur un
+          // dossier vierge lisait « Enregistré ✓ » juste sous la ligne
+          // « Renseigne le numéro de TVA » — deux champs vides des deux côtés
+          // étant trivialement « identiques ». Constaté en navigateur sur un
+          // compte neuf le 22 août 2026.
+          //
+          // Le `?? ''` reste nécessaire par ailleurs : un champ jamais
+          // renseigné (`null` côté serveur) et un champ local encore vide ne
+          // sont pas « changés » l'un par rapport à l'autre, sans quoi le
+          // bouton resterait actif indéfiniment.
+          identitySaved={
+            Boolean(vatNumberSavedValue) &&
+            (legalNameSavedValue ?? '') === legalName &&
+            (vatNumberSavedValue ?? '') === vatNumber
+          }
           onContinue={() => setStep('review')}
         />
       )}

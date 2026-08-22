@@ -31,6 +31,9 @@ export function CompleteDossierStep({
   onLegalNameChange,
   vatNumber,
   onVatNumberChange,
+  onSaveIdentity,
+  isSavingIdentity,
+  identitySaved,
   onContinue,
 }: {
   venueId: string;
@@ -48,12 +51,29 @@ export function CompleteDossierStep({
   onLegalNameChange: (value: string) => void;
   vatNumber: string;
   onVatNumberChange: (value: string) => void;
+  onSaveIdentity: () => void;
+  isSavingIdentity: boolean;
+  identitySaved: boolean;
   onContinue: () => void;
 }) {
   const [vatTouched, setVatTouched] = useState(false);
   const remaining = Math.max(0, VENUE_DESCRIPTION_MIN_LENGTH - description.trim().length);
   const descriptionChanged = remaining === 0; // le bouton « Enregistrer » se réactive après une modification
-  const vatCheck = vatTouched && vatNumber.trim() ? validateVatNumber(vatNumber) : null;
+
+  // Validité, indépendamment du fait que le champ ait été touché : un numéro
+  // repris du serveur au montage (déjà valide) doit pouvoir réactiver le
+  // bouton après une modification sans que l'utilisateur ait à re-toucher le
+  // champ une première fois pour rien.
+  const vatValidation = vatNumber.trim() ? validateVatNumber(vatNumber) : null;
+  const vatValid = vatValidation?.ok ?? false;
+  // Le message affiché sous le champ, lui, ne s'allume qu'après une saisie —
+  // un numéro repris tel quel du serveur n'a pas besoin d'un « Numéro valide »
+  // non sollicité au premier rendu.
+  const vatCheck = vatTouched ? vatValidation : null;
+  // `createBusinessSchema.legalName` exige 2 caractères au moins dès qu'il est
+  // fourni ; vide, il reste facultatif (voir `update-business.schema.ts`).
+  const legalNameValid = legalName.trim().length === 0 || legalName.trim().length >= 2;
+  const canSaveIdentity = vatValid && legalNameValid;
 
   return (
     <div className="mt-8 flex flex-col gap-8">
@@ -146,6 +166,7 @@ export function CompleteDossierStep({
               autoComplete="organization"
               className="mt-1 min-h-12 w-full rounded-card border border-border bg-surface px-4"
             />
+            <FieldErrorText message={fieldErrors.legalName?.[0]} />
           </div>
           <div>
             <label htmlFor="vat" className="text-sm font-semibold">
@@ -161,26 +182,25 @@ export function CompleteDossierStep({
               placeholder="BE0123456749"
               className="mt-1 min-h-12 w-full rounded-card border border-border bg-surface px-4"
             />
-            {vatCheck && (
-              <p className={`mt-1 text-sm ${vatCheck.ok ? 'text-success' : 'text-danger'}`}>
-                {vatCheck.ok ? 'Numéro valide.' : vatCheck.message}
-              </p>
+            {fieldErrors.vatNumber?.[0] ? (
+              <FieldErrorText message={fieldErrors.vatNumber[0]} />
+            ) : (
+              vatCheck && (
+                <p className={`mt-1 text-sm ${vatCheck.ok ? 'text-success' : 'text-danger'}`}>
+                  {vatCheck.ok ? 'Numéro valide.' : vatCheck.message}
+                </p>
+              )
             )}
           </div>
 
-          {/*
-            Pas de bouton « Enregistrer » ici, volontairement : l'API n'expose
-            aujourd'hui aucune route pour modifier le numéro de TVA ou la raison
-            sociale d'un établissement après sa création (aucun
-            `PATCH /v1/businesses/:id`). Le champ reste utilisable — la saisie est
-            gardée sur cet appareil (`onboarding-draft`) — mais rien ne part au
-            serveur tant que cette route n'existe pas. Voir le rapport de ce
-            chantier : c'est le blocage principal du dossier.
-          */}
-          <p className="rounded-card bg-warning-subtle p-3 text-sm text-warning">
-            L’enregistrement du numéro de TVA arrive très bientôt. En attendant, il reste noté sur cet
-            appareil — tu n’as rien à retaper.
-          </p>
+          <button
+            type="button"
+            onClick={onSaveIdentity}
+            disabled={!canSaveIdentity || isSavingIdentity || identitySaved}
+            className="mt-2 min-h-11 rounded-card border border-border px-4 text-sm font-semibold hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isSavingIdentity ? 'Enregistrement…' : identitySaved ? 'Enregistré ✓' : 'Enregistrer'}
+          </button>
         </div>
       </section>
 
