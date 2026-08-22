@@ -1,5 +1,47 @@
 # TODO
 
+## Le motif du 22 août 2026 — l'API réparée, le produit non
+
+À lire avant d'ouvrir un chantier, parce que ce motif a coûté six jours sans que
+personne le voie.
+
+**Deux fois dans la même journée, sur deux fonctionnalités sans rapport, un lot
+« terminé » avait réparé l'API et laissé l'écran en l'état.**
+
+- L'enregistrement du numéro de TVA : endpoint livré le 17 août (`5464809`), dont
+  le message se termine par « Corrigé au lot suivant ». Ce lot suivant n'a jamais
+  touché l'interface. Résultat : `missingRequirements` contenait toujours
+  `VALID_VAT_NUMBER` et **aucun gérant ne pouvait aller au bout de son
+  inscription**, alors que le chantier « inscription autonome » était réputé fini.
+- La commission nette des remboursements : corrigée côté API le matin même,
+  affichée en brut par la console admin jusqu'au soir.
+
+Variante du même motif, trouvée le soir : **l'API sait répondre, l'écran ne sait
+pas demander.** `GET /v1/admin/payments` a gagné un filtre et une pagination ;
+`apps/admin` ne les utilise pas encore et affiche toujours ses cinquante
+premières lignes.
+
+**La règle qui en découle :** un lot qui touche à ce qu'un utilisateur voit n'est
+pas terminé tant que quelqu'un ne l'a pas regardé dans un navigateur. Une suite
+verte ne dit rien de ce qu'un humain peut faire. Les deux défauts ci-dessus
+étaient couverts par des tests d'API qui passaient.
+
+### Et trois instruments de mesure qui mentaient
+
+Découverts le même jour, tous les trois répondant « tout va bien » sans avoir
+regardé, et aucun ne signalant qu'il n'avait pas regardé :
+
+| Instrument | Ce qu'il disait | Ce qui était vrai |
+| --- | --- | --- |
+| Suite d'intégration | 168 tests | 108 — 60 fantômes venus d'un worktree oublié |
+| `pnpm test:integration` | succès, code 0 | rien exécuté : `.env` n'était pas chargé |
+| `pnpm typecheck` | 18 réussites en 17 ms | un cache turbo servi sans rien compiler |
+
+Les trois sont corrigés. Le troisième ne l'est que par la discipline : **toujours
+`npx turbo run typecheck --force`** quand le chiffre sert de preuve.
+
+---
+
 Dette connue et assumée, par ordre de ce qui bloque une mise en ligne.
 Chaque point a été constaté lors de la relecture du lot « remboursements
 Stripe » : aucun n'est un soupçon, tous sont vérifiés dans le code.
@@ -443,7 +485,10 @@ SELECT commission_basis_points, count(*) FROM businesses GROUP BY 1;
 --  2500 | 9
 ```
 
-**Neuf salles, toutes à 2500.** Le jeu de démonstration a été recréé après la
+**Neuf salles, toutes à 2500** — dont une, « Body Training Studio », résidu de
+test d'une session antérieure : le seed en produit huit, de façon déterministe.
+La nuance ne change rien à la conclusion, aucune salle n'ayant jamais porté 1500.
+Le jeu de démonstration a été recréé après la
 migration `0005`, exactement comme le commentaire de cette migration l'annonçait
 (« en développement, `pnpm db:seed` les recrée au nouveau taux »). Et il n'existe
 aucune autre base : rien n'est déployé, aucun gérant réel n'a été invité.
