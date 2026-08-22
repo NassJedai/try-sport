@@ -8,6 +8,7 @@ import { DomainEvents } from '../src/modules/events/domain-events.js';
 import { RefundLedgerService } from '../src/modules/payments/refund-ledger.service.js';
 import { WebhookDispatcherService } from '../src/modules/payments/webhook-dispatcher.service.js';
 import { PaymentService } from '../src/modules/payments/payment.service.js';
+import { AdminBrowseService } from '../src/modules/admin/admin-browse.service.js';
 import type {
   PaymentIntentResult,
   PaymentProvider,
@@ -999,10 +1000,45 @@ describeIfDatabase('registre de remboursements', () => {
     },
   );
 
+  /**
+   * Les deux tests qui suivent couvrent `AdminBrowseService.payments()`, pas le
+   * registre de remboursements. Ils vivent ici parce que `seedPaidReservation`
+   * y vit : c'est le seul harnais du depot qui sait fabriquer un paiement dans
+   * un statut arbitraire avec ses montants de commission. Si ce fichier est un
+   * jour scinde, cette couverture d'argent doit suivre le harnais, pas le nom.
+   *
+   * L'acteur admin est un objet en memoire, sans ligne en base : `isPlatformAdmin`
+   * (common/auth/current-user.ts:49-51) ne lit que `user.role`, et `payments()`
+   * ne fait aucune lecture de l'acteur. Inserer un utilisateur ici ne prouverait
+   * rien et ajouterait une ligne a nettoyer.
+   */
+  const ADMIN_ACTOR = {
+    id: '00000000-0000-4000-8000-000000000001',
+    email: 'admin@test.local',
+    role: 'SUPER_ADMIN' as const,
+    memberships: [],
+  };
+
+  // Le plafond reel de la frontiere publique (admin-browse.controller.ts:21 :
+  // `.max(100)`). Interroger au-dela passerait par une entree que l'API refuse
+  // par un 400 — le test doit rester dans ce que la production peut produire.
+  const MAX_ADMIN_PAGE = 100;
+
   it(
-    '[bug reel, pre-existant, HORS PERIMETRE de cette correction] admin-browse.service.ts:191 facture une ' +
-      'commission nette sur un paiement jamais capture',
+    '[CORRIGE le 2026-08-22] AdminBrowseService.payments() ne facture plus de commission ' +
+      'nette sur un paiement jamais capture — meme filtre de statut que moderation.service.ts',
     async () => {
+      // Ce test caracterisait un bug reel jusqu'au 2026-08-22 : sur un checkout
+      // abandonne (aucun encaissement, jamais rembourse), `payments()` calculait
+      // quand meme `platformFeeAmount - refundedPlatformFeeAmount` sans filtre de
+      // statut, contrairement a l'agregat de moderation.service.ts qui restreint
+      // deja a SUCCEEDED / PARTIALLY_REFUNDED / REFUNDED. La regle correcte,
+      // desormais appliquee par les deux : un paiement qui n'a jamais capture ne
+      // peut pas avoir genere de commission, quoi que portent ses colonnes brutes.
+      //
+      // Le test appelle le vrai chemin de production plutot que de reproduire la
+      // formule en SQL brut, pour ne plus pouvoir diverger du code reel. Aucun
+      // numero de ligne dans ce titre : il perimerait au premier deplacement.
       const seed = await seedPaidReservation({
         amount: 1000,
         platformFeeAmount: 250,
@@ -1010,28 +1046,66 @@ describeIfDatabase('registre de remboursements', () => {
         reservationStatus: 'PAYMENT_PENDING',
       });
       try {
-        // Checkout abandonne, jamais rembourse : aucun encaissement n'a jamais
-        // eu lieu. Reproduit ICI la formule exacte de admin-browse.service.ts:191
-        // (`payments()`, la liste admin des paiements) qui, a la difference de
-        // moderation.service.ts:318-320, ne filtre PAS par statut.
-        const [row] = (await db.execute(sql`
-          SELECT (platform_fee_amount - refunded_platform_fee_amount)::int AS "netPlatformFee", status
-          FROM payments WHERE id = ${seed.paymentId}
-        `)) as unknown as { netPlatformFee: number; status: string }[];
+        const { items } = await new AdminBrowseService(db).payments(ADMIN_ACTOR, {
+          limit: MAX_ADMIN_PAGE,
+        });
+        const row = items.find((item) => item.id === seed.paymentId);
 
+        expect(row).toBeDefined();
         expect(row?.status).toBe('REQUIRES_PAYMENT');
-        // Ce montant DEVRAIT etre 0 : aucun encaissement n'a jamais eu lieu sur
-        // ce paiement. `admin-browse.service.ts:191` le facture quand meme,
-        // faute du meme filtre de statut que moderation.service.ts. Signale au
-        // chef de projet plutot que corrige ici : `apps/admin` et le reste
-        // d'`apps/api/src/modules/admin` ne sont pas dans le perimetre de cette
-        // tache (refund-ledger.service.ts, ce fichier de test,
-        // payment.service.ts). Ce test caracterise le bug ACTUEL ; il devra
-        // etre invertit (`toBe(0)`) le jour ou admin-browse.service.ts applique
-        // le meme filtre de statut.
-        expect(row?.netPlatformFee).toBe(250);
+        // Le brut reste visible tel quel : seule la commission NETTE change.
+        expect(row?.platformFee.amount).toBe(250);
+        expect(row?.netPlatformFee.amount).toBe(0);
       } finally {
         await seed.cleanup();
+      }
+    },
+  );
+
+  it(
+    'AdminBrowseService.payments() : un paiement FAILED ne contribue pas non plus au ' +
+      'netPlatformFee, un paiement partiellement rembourse continue de netter correctement',
+    async () => {
+      // Nettoyage imbrique plutot que deux seeds avant un seul try : si le second
+      // seed echoue, le premier doit quand meme etre rendu. La base d'integration
+      // est partagee par toute la suite — une ligne oubliee ici se paie ailleurs.
+      const failed = await seedPaidReservation({
+        amount: 1000,
+        platformFeeAmount: 250,
+        status: 'FAILED',
+        reservationStatus: 'PAYMENT_PENDING',
+        failureCode: 'card_declined',
+      });
+      try {
+        const settled = await seedPaidReservation({
+          amount: 1000,
+          platformFeeAmount: 150,
+          status: 'PARTIALLY_REFUNDED',
+          refundedAmount: 300,
+          refundedPlatformFeeAmount: 45,
+          refundedMerchantAmount: 255,
+        });
+        try {
+          const { items } = await new AdminBrowseService(db).payments(ADMIN_ACTOR, {
+            limit: MAX_ADMIN_PAGE,
+          });
+
+          const failedRow = items.find((item) => item.id === failed.paymentId);
+          expect(failedRow?.status).toBe('FAILED');
+          expect(failedRow?.platformFee.amount).toBe(250);
+          expect(failedRow?.netPlatformFee.amount).toBe(0);
+
+          const settledRow = items.find((item) => item.id === settled.paymentId);
+          expect(settledRow?.status).toBe('PARTIALLY_REFUNDED');
+          expect(settledRow?.platformFee.amount).toBe(150);
+          // Un paiement effectivement encaisse continue de netter normalement :
+          // 150 de commission brute moins 45 rendus sur le remboursement partiel.
+          expect(settledRow?.netPlatformFee.amount).toBe(105);
+        } finally {
+          await settled.cleanup();
+        }
+      } finally {
+        await failed.cleanup();
       }
     },
   );
