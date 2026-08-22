@@ -159,8 +159,25 @@ export class AdminBrowseService {
        * Commission nette du rembourse : platformFee - refundedPlatformFee,
        * uniquement sur un paiement effectivement encaisse (voir
        * `isCapturedPayment`, @try/contracts/payment-capture.ts).
+       *
+       * `null` et `0` repondent a deux questions differentes et ne doivent
+       * jamais s'afficher pareil :
+       *
+       * - `null` : aucun encaissement constate (`isCapturedPayment` faux —
+       *   `REQUIRES_PAYMENT`, `PROCESSING`, `FAILED`, `CANCELLED`). Aucune
+       *   commission n'a jamais existe sur cette ligne ; ce n'est pas zero,
+       *   c'est sans objet — cette ligne n'est pas une vente.
+       * - un montant, potentiellement `0` : un encaissement a bien ete
+       *   constate. Le net vaut reellement zero quand le remboursement a
+       *   couvert l'integralite de la commission brute (`REFUNDED` total) ;
+       *   c'est une information sur cette vente, pas une absence de vente.
+       *
+       * Tranche cote serveur — voir invariant 2 de CLAUDE.md, le client ne
+       * decide de rien qui compte. Le lot d'interface qui consomme ce champ
+       * doit afficher « — » sur `null` et le montant (y compris `0 €`) sur un
+       * nombre, sans reconstituer la distinction a partir du statut.
        */
-      netPlatformFee: { amount: number; currency: string };
+      netPlatformFee: { amount: number; currency: string } | null;
       refunded: { amount: number; currency: string };
       providerPaymentIntentId: string | null;
       createdAt: string;
@@ -199,10 +216,9 @@ export class AdminBrowseService {
           businessName: row.businessName,
           amount: money(row.amount, currency),
           platformFee: money(row.platformFeeAmount, currency),
-          netPlatformFee: money(
-            captured ? row.platformFeeAmount - row.refundedPlatformFeeAmount : 0,
-            currency,
-          ),
+          netPlatformFee: captured
+            ? money(row.platformFeeAmount - row.refundedPlatformFeeAmount, currency)
+            : null,
           refunded: money(row.refundedAmount, currency),
           providerPaymentIntentId: row.providerPaymentIntentId,
           createdAt: row.createdAt.toISOString(),

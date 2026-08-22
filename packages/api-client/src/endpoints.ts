@@ -54,6 +54,39 @@ export interface UpdateBusinessInput {
 }
 
 /**
+ * Réponse de `GET /v1/admin/payments`.
+ *
+ * Même situation que `BusinessDetailDto` ci-dessus : pas de DTO dans
+ * `@try/contracts`, à synchroniser à la main avec le type de retour de
+ * `AdminBrowseService.payments()`
+ * (`apps/api/src/modules/admin/admin-browse.service.ts`). Aujourd'hui aucun
+ * appelant ne passe par ici — `apps/admin/app/payments/page.tsx` fait encore
+ * un `apiClient.get()` brut avec sa propre interface locale (dette suivie
+ * dans `TODO.md`, § « La console admin affiche encore la commission
+ * brute »). Cette forme existe pour que ce futur branchement ait un type
+ * correct à consommer dès le départ plutôt que de reproduire l'écart.
+ *
+ * `netPlatformFee` est `null` quand notre base n'a constaté aucun
+ * encaissement (checkout jamais capturé — aucune commission n'a existé), et
+ * un montant, éventuellement `0`, quand un encaissement a été constaté (`0`
+ * signifie alors un remboursement intégral de la commission, pas une
+ * absence de vente). Voir le commentaire sur `netPlatformFee` dans
+ * `AdminBrowseService.payments()` pour le détail de la règle.
+ */
+export interface AdminPaymentDto {
+  id: string;
+  status: string;
+  userEmail: string;
+  businessName: string;
+  amount: { amount: number; currency: string };
+  platformFee: { amount: number; currency: string };
+  netPlatformFee: { amount: number; currency: string } | null;
+  refunded: { amount: number; currency: string };
+  providerPaymentIntentId: string | null;
+  createdAt: string;
+}
+
+/**
  * Typed endpoint surface.
  *
  * Every response type comes from `@try/contracts`, which the API also validates
@@ -241,6 +274,11 @@ export function createEndpoints(client: ApiClient) {
 
       deleteOfferImage: (offerId: string, imageId: string) =>
         client.delete<void>(`/v1/offers/${offerId}/images/${imageId}`),
+    },
+
+    admin: {
+      payments: (limit = 50) =>
+        client.get<{ items: AdminPaymentDto[] }>('/v1/admin/payments', { query: { limit } }),
     },
   };
 }

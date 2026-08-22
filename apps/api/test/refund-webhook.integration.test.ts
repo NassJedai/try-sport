@@ -1025,8 +1025,9 @@ describeIfDatabase('registre de remboursements', () => {
   const MAX_ADMIN_PAGE = 100;
 
   it(
-    '[CORRIGE le 2026-08-22] AdminBrowseService.payments() ne facture plus de commission ' +
-      'nette sur un paiement jamais capture — meme filtre de statut que moderation.service.ts',
+    '[CORRIGE le 2026-08-22, regle changee le 2026-08-22] AdminBrowseService.payments() ' +
+      'ne facture plus de commission nette sur un paiement jamais capture — meme filtre de ' +
+      'statut que moderation.service.ts, et rend `null` plutot que `0` pour ce cas',
     async () => {
       // Ce test caracterisait un bug reel jusqu'au 2026-08-22 : sur un checkout
       // abandonne (aucun encaissement, jamais rembourse), `payments()` calculait
@@ -1035,6 +1036,12 @@ describeIfDatabase('registre de remboursements', () => {
       // deja a SUCCEEDED / PARTIALLY_REFUNDED / REFUNDED. La regle correcte,
       // desormais appliquee par les deux : un paiement qui n'a jamais capture ne
       // peut pas avoir genere de commission, quoi que portent ses colonnes brutes.
+      //
+      // La regle a change une seconde fois le meme jour : ce cas rendait `0`,
+      // ce qui se confondait a l'ecran avec un paiement REFUNDED dont la
+      // commission a vraiment ete ramenee a zero. `netPlatformFee` est
+      // desormais `null` ici — « sans objet », pas « zero » — voir le
+      // commentaire sur le champ dans AdminBrowseService.payments().
       //
       // Le test appelle le vrai chemin de production plutot que de reproduire la
       // formule en SQL brut, pour ne plus pouvoir diverger du code reel. Aucun
@@ -1055,7 +1062,7 @@ describeIfDatabase('registre de remboursements', () => {
         expect(row?.status).toBe('REQUIRES_PAYMENT');
         // Le brut reste visible tel quel : seule la commission NETTE change.
         expect(row?.platformFee.amount).toBe(250);
-        expect(row?.netPlatformFee.amount).toBe(0);
+        expect(row?.netPlatformFee).toBeNull();
       } finally {
         await seed.cleanup();
       }
@@ -1063,8 +1070,9 @@ describeIfDatabase('registre de remboursements', () => {
   );
 
   it(
-    'AdminBrowseService.payments() : un paiement FAILED ne contribue pas non plus au ' +
-      'netPlatformFee, un paiement partiellement rembourse continue de netter correctement',
+    '[regle changee le 2026-08-22] AdminBrowseService.payments() : un paiement FAILED rend ' +
+      'null (pas 0) pour netPlatformFee, un paiement partiellement rembourse continue de ' +
+      'netter correctement, un paiement integralement rembourse net a un vrai 0',
     async () => {
       // Nettoyage imbrique plutot que deux seeds avant un seul try : si le second
       // seed echoue, le premier doit quand meme etre rendu. La base d'integration
@@ -1086,21 +1094,45 @@ describeIfDatabase('registre de remboursements', () => {
           refundedMerchantAmount: 255,
         });
         try {
-          const { items } = await new AdminBrowseService(db).payments(ADMIN_ACTOR, {
-            limit: MAX_ADMIN_PAGE,
+          // L'enjeu du lot : REFUNDED encaisse bien un jour, puis rend tout —
+          // net doit etre un vrai 0, distinct du null de FAILED ci-dessus alors
+          // que les deux affichaient la meme chose avant ce correctif.
+          const refundedInFull = await seedPaidReservation({
+            amount: 1000,
+            platformFeeAmount: 250,
+            status: 'REFUNDED',
+            refundedAmount: 1000,
+            refundedPlatformFeeAmount: 250,
+            refundedMerchantAmount: 750,
           });
+          try {
+            const { items } = await new AdminBrowseService(db).payments(ADMIN_ACTOR, {
+              limit: MAX_ADMIN_PAGE,
+            });
 
-          const failedRow = items.find((item) => item.id === failed.paymentId);
-          expect(failedRow?.status).toBe('FAILED');
-          expect(failedRow?.platformFee.amount).toBe(250);
-          expect(failedRow?.netPlatformFee.amount).toBe(0);
+            const failedRow = items.find((item) => item.id === failed.paymentId);
+            expect(failedRow?.status).toBe('FAILED');
+            expect(failedRow?.platformFee.amount).toBe(250);
+            expect(failedRow?.netPlatformFee).toBeNull();
 
-          const settledRow = items.find((item) => item.id === settled.paymentId);
-          expect(settledRow?.status).toBe('PARTIALLY_REFUNDED');
-          expect(settledRow?.platformFee.amount).toBe(150);
-          // Un paiement effectivement encaisse continue de netter normalement :
-          // 150 de commission brute moins 45 rendus sur le remboursement partiel.
-          expect(settledRow?.netPlatformFee.amount).toBe(105);
+            const settledRow = items.find((item) => item.id === settled.paymentId);
+            expect(settledRow?.status).toBe('PARTIALLY_REFUNDED');
+            expect(settledRow?.platformFee.amount).toBe(150);
+            // Un paiement effectivement encaisse continue de netter normalement :
+            // 150 de commission brute moins 45 rendus sur le remboursement partiel.
+            expect(settledRow?.netPlatformFee?.amount).toBe(105);
+
+            const refundedRow = items.find((item) => item.id === refundedInFull.paymentId);
+            expect(refundedRow?.status).toBe('REFUNDED');
+            expect(refundedRow?.platformFee.amount).toBe(250);
+            // Vrai zero : l'encaissement a existe, la commission a existe, elle
+            // a ete integralement rendue. A ne pas confondre avec le null de
+            // failedRow ci-dessus, qui n'a jamais eu de commission du tout.
+            expect(refundedRow?.netPlatformFee).not.toBeNull();
+            expect(refundedRow?.netPlatformFee?.amount).toBe(0);
+          } finally {
+            await refundedInFull.cleanup();
+          }
         } finally {
           await settled.cleanup();
         }
