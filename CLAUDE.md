@@ -196,10 +196,6 @@ Il se lit toujours depuis `businesses.commission_basis_points`.
 
 <!-- Points ouverts — à compléter par Nassim -->
 
-- Le taux par défaut en base est passé à `2500`, et un test le tient. Reste à
-  décider du sort des salles **existantes**, toutes à `1500` par héritage : les
-  remonter salle par salle, ou leur laisser ce tarif historique. Rien dans le
-  schéma ne distingue un défaut hérité d'un taux négocié.
 - La commission est **enregistrée, pas prélevée** : Stripe Connect n'est pas
   branché (`application_fee_amount` toujours nul). La plateforme encaisse tout et
   doit reverser. Voir `TODO.md`.

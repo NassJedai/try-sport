@@ -424,7 +424,7 @@ nous, ce classement est trompeur pour l'appelant. Le corriger touche les quatre
 applications à la fois — c'est un changement de contrat public, pas un détail
 d'implémentation.
 
-### ~~Le taux de commission par défaut est encore à 1500~~ — fait, sauf l'arbitrage
+### ~~Le taux de commission par défaut est encore à 1500~~ — clos le 22 août 2026
 
 Les quatre endroits sont traités (`3f6a144`) : défaut de colonne, valeur codée en
 dur du flux d'inscription (supprimée), seed, et la migration
@@ -433,11 +433,28 @@ dur du flux d'inscription (supprimée), seed, et la migration
 désormais si une salle naît à autre chose que 2500 — vérifié dans les deux sens,
 défaut ramené à 1500 puis restauré.
 
-**Ce qui reste à arbitrer, et qui est une vraie décision commerciale :** un
-changement de défaut ne touche que les futures lignes. Les salles existantes sont
-toutes à 1500 par héritage, **aucune ne l'a négocié** — mais rien dans le schéma
-ne distingue une salle laissée au défaut d'une salle à qui l'on aurait consenti
-15 %. Un `UPDATE` global romprait donc des accords qu'on ne sait pas relire.
+**L'arbitrage annoncé ici était sans objet — vérifié en base le 22 août 2026.**
 
-À trancher : les remonter à 2500 salle par salle, ou les laisser à 15 % comme
-tarif historique. Ce n'est pas une tâche de code.
+Il portait sur « les salles existantes, toutes à 1500 par héritage ». Comptage
+réel :
+
+```sql
+SELECT commission_basis_points, count(*) FROM businesses GROUP BY 1;
+--  2500 | 9
+```
+
+**Neuf salles, toutes à 2500.** Le jeu de démonstration a été recréé après la
+migration `0005`, exactement comme le commentaire de cette migration l'annonçait
+(« en développement, `pnpm db:seed` les recrée au nouveau taux »). Et il n'existe
+aucune autre base : rien n'est déployé, aucun gérant réel n'a été invité.
+
+Il n'y avait donc aucune salle à remonter, et la population concernée par la
+question n'existait pas. La décision ne renaîtra que le jour où une vraie salle
+sera inscrite à un taux négocié — ce sera alors un choix salle par salle, jamais
+une migration. `0005` a déjà tranché le principe : seul le défaut change, les
+lignes existantes ne sont jamais réécrites.
+
+Leçon de méthode, la même que celle du commit `3f6a144` : cette entrée décrivait
+un état de la base tenu pour acquis pendant six jours sans qu'un `SELECT` ne le
+confirme. Un point « à arbitrer » dont on n'a pas compté la population n'est pas
+une décision en attente, c'est une supposition en attente.
