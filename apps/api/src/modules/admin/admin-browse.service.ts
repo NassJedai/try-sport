@@ -1,13 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { asc, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
-import { money } from '@try/utils';
+import { and, asc, desc, eq, ilike, inArray, isNull, lt, or, sql } from 'drizzle-orm';
+import { buildCursorPage, decodeCursor, money } from '@try/utils';
 import type { CurrencyCode } from '@try/utils';
 import {
   isCapturedPayment,
   missingVenueSubmissionRequirements,
   VENUE_SUBMISSION_REQUIREMENT_LABELS_FR,
 } from '@try/contracts';
-import type { VenueSubmissionRequirement } from '@try/contracts';
+import type { PaymentStatus, VenueSubmissionRequirement } from '@try/contracts';
 import { schema } from '@try/database';
 import type { Database } from '@try/database';
 import { DATABASE } from '../../common/database.module.js';
@@ -144,9 +144,14 @@ export class AdminBrowseService {
     };
   }
 
+  /**
+   * `status` et `cursor` sont tous deux optionnels et orthogonaux : le filtre
+   * restreint l'ensemble, le curseur avance dedans. Sans l'un ni l'autre,
+   * c'est la première page de tout, comme avant ce lot.
+   */
   async payments(
     actor: AuthenticatedUser,
-    query: { limit: number },
+    query: { status?: PaymentStatus; cursor?: string; limit: number },
   ): Promise<{
     items: {
       id: string;
@@ -182,31 +187,88 @@ export class AdminBrowseService {
       providerPaymentIntentId: string | null;
       createdAt: string;
     }[];
+    /** Curseur opaque vers la page suivante, `null` s'il n'y en a pas. */
+    nextCursor: string | null;
+    /**
+     * Total de lignes correspondant au filtre `status` (ou de la table
+     * entière si aucun filtre), indépendant de la page courante — sinon un
+     * admin qui voit 50 lignes ne sait pas s'il en existe 50 ou 5000.
+     *
+     * Un `COUNT(*)` par appel, volontairement : cette vue est un outil de
+     * support à faible trafic (un admin au clavier, pas un flux public), la
+     * colonne `status` est indexée (`payments_status_idx`) pour le cas
+     * filtré, et à l'échelle d'un lancement mono-ville le cas non filtré
+     * reste un scan bon marché. Recompter à chaque page plutôt que de ne le
+     * faire qu'à la première évite au client d'avoir à porter cette valeur
+     * lui-même d'une page à l'autre. Si ce volume change d'ordre de
+     * grandeur, la bonne suite est un total approché (`reltuples`) ou une
+     * réponse qui ne le recalcule qu'en l'absence de curseur — pas d'y
+     * toucher à l'aveugle aujourd'hui.
+     */
+    total: number;
   }> {
     this.assertAdmin(actor);
 
-    const rows = await this.db
-      .select({
-        id: schema.payments.id,
-        status: schema.payments.status,
-        userEmail: schema.users.email,
-        businessName: schema.businesses.name,
-        amount: schema.payments.amount,
-        platformFeeAmount: schema.payments.platformFeeAmount,
-        refundedAmount: schema.payments.refundedAmount,
-        refundedPlatformFeeAmount: schema.payments.refundedPlatformFeeAmount,
-        currency: schema.payments.currency,
-        providerPaymentIntentId: schema.payments.providerPaymentIntentId,
-        createdAt: schema.payments.createdAt,
-      })
-      .from(schema.payments)
-      .innerJoin(schema.users, eq(schema.users.id, schema.payments.userId))
-      .innerJoin(schema.businesses, eq(schema.businesses.id, schema.payments.businessId))
-      .orderBy(desc(schema.payments.createdAt))
-      .limit(query.limit);
+    const statusCondition = query.status ? eq(schema.payments.status, query.status) : undefined;
+
+    // Curseur invalide ou mal formé : dégrade en silence vers la première
+    // page, comme `discovery.service.ts` le fait déjà pour son propre
+    // curseur — un lien copié-collé de travers ne doit pas rendre un 400,
+    // juste recommencer au début.
+    const decoded = query.cursor ? decodeCursor(query.cursor) : null;
+    const cursor =
+      decoded && typeof decoded.sortValue === 'string' ? { at: new Date(decoded.sortValue), id: decoded.id } : null;
+    // Keyset sur (created_at, id) DESC, pas un OFFSET : un paiement inséré
+    // pendant qu'un admin feuillette ne doit ni décaler ni dupliquer les
+    // pages suivantes. `id` départage les égalités de `created_at` — rares,
+    // mais un `Date` JS ne porte que la milliseconde, jamais la microseconde
+    // que `timestamptz` peut stocker ; deux paiements à moins d'une
+    // milliseconde d'écart sont un cas non couvert par ce départage, comme
+    // partout ailleurs dans ce dépôt où `mode: 'date'` est utilisé pour
+    // comparer des timestamps.
+    const cursorCondition = cursor
+      ? or(
+          lt(schema.payments.createdAt, cursor.at),
+          and(eq(schema.payments.createdAt, cursor.at), lt(schema.payments.id, cursor.id)),
+        )
+      : undefined;
+
+    const [rows, totalRows] = await Promise.all([
+      this.db
+        .select({
+          id: schema.payments.id,
+          status: schema.payments.status,
+          userEmail: schema.users.email,
+          businessName: schema.businesses.name,
+          amount: schema.payments.amount,
+          platformFeeAmount: schema.payments.platformFeeAmount,
+          refundedAmount: schema.payments.refundedAmount,
+          refundedPlatformFeeAmount: schema.payments.refundedPlatformFeeAmount,
+          currency: schema.payments.currency,
+          providerPaymentIntentId: schema.payments.providerPaymentIntentId,
+          createdAt: schema.payments.createdAt,
+        })
+        .from(schema.payments)
+        .innerJoin(schema.users, eq(schema.users.id, schema.payments.userId))
+        .innerJoin(schema.businesses, eq(schema.businesses.id, schema.payments.businessId))
+        .where(and(statusCondition, cursorCondition))
+        .orderBy(desc(schema.payments.createdAt), desc(schema.payments.id))
+        // Une ligne de plus que demandé : révèle s'il existe une page
+        // suivante sans un second aller-retour dédié.
+        .limit(query.limit + 1),
+      this.db
+        .select({ total: sql<number>`COUNT(*)::int` })
+        .from(schema.payments)
+        .where(statusCondition),
+    ]);
+
+    const page = buildCursorPage(rows, query.limit, (row) => ({
+      sortValue: row.createdAt.toISOString(),
+      id: row.id,
+    }));
 
     return {
-      items: rows.map((row) => {
+      items: page.items.map((row) => {
         const currency = row.currency as CurrencyCode;
         const captured = isCapturedPayment(row.status);
         return {
@@ -224,6 +286,8 @@ export class AdminBrowseService {
           createdAt: row.createdAt.toISOString(),
         };
       }),
+      nextCursor: page.nextCursor,
+      total: totalRows[0]?.total ?? 0,
     };
   }
 

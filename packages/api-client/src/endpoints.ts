@@ -87,6 +87,18 @@ export interface AdminPaymentDto {
 }
 
 /**
+ * Corps de la requête `GET /v1/admin/payments` — voir `paymentsQuerySchema`
+ * dans `apps/api/src/modules/admin/admin-browse.controller.ts` pour les
+ * règles exactes (bornes de `limit`, `status` exact plutôt qu'un
+ * regroupement `payment-capture.ts`).
+ */
+export interface AdminPaymentsQuery {
+  status?: string;
+  cursor?: string;
+  limit?: number;
+}
+
+/**
  * Typed endpoint surface.
  *
  * Every response type comes from `@try/contracts`, which the API also validates
@@ -277,8 +289,11 @@ export function createEndpoints(client: ApiClient) {
     },
 
     admin: {
-      payments: (limit = 50) =>
-        client.get<{ items: AdminPaymentDto[] }>('/v1/admin/payments', { query: { limit } }),
+      payments: (input: AdminPaymentsQuery = {}) =>
+        client.get<{ items: AdminPaymentDto[]; nextCursor: string | null; total: number }>(
+          '/v1/admin/payments',
+          { query: { status: input.status, cursor: input.cursor, limit: input.limit ?? 50 } },
+        ),
     },
   };
 }

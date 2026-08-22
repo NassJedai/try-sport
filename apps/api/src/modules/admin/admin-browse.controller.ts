@@ -1,7 +1,7 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
-import { RESERVATION_STATUSES } from '@try/contracts';
+import { PAYMENT_STATUSES, RESERVATION_STATUSES } from '@try/contracts';
 import { Roles } from '../../common/auth/auth.guard.js';
 import { CurrentUser, type AuthenticatedUser } from '../../common/auth/current-user.js';
 import { zodQuery } from '../../common/zod-validation.pipe.js';
@@ -17,7 +17,26 @@ const bookingsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 
+/**
+ * `status` filtre sur un statut exact de `PAYMENT_STATUSES`, pas sur les
+ * regroupements « situation » de `payment-capture.ts`
+ * (`CAPTURED`/`IN_FLIGHT`/`STOPPED`). Ces groupes existent pour trancher « une
+ * commission a-t-elle existé ? », une question plus grossière que celle d'un
+ * admin au clavier : « montre-moi les remboursements » veut `REFUNDED`
+ * précisément, pas tout `CAPTURED` — ce dernier bucket mélangerait `SUCCEEDED`
+ * dedans et rendrait le filtre inutilisable pour ce cas d'usage réel. Voir
+ * `AdminBrowseService.payments()` pour le detail.
+ *
+ * `cursor` suit `packages/utils/src/pagination.ts` (`encodeCursor`/
+ * `decodeCursor`/`buildCursorPage`) : un curseur d'ensemble ordonné (createdAt,
+ * id), pas un offset — stable si des paiements arrivent pendant qu'un admin
+ * feuillette. Les bornes de `limit` restent celles des routes sœurs de ce
+ * contrôleur (1-100, défaut 50), pas celles de `cursorPaginationSchema`
+ * (1-50, défaut 20) qui servent un usage public différent.
+ */
 const paymentsQuerySchema = z.object({
+  status: z.enum(PAYMENT_STATUSES).optional(),
+  cursor: z.string().max(512).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 
