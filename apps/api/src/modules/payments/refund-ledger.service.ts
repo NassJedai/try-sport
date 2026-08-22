@@ -5,6 +5,7 @@ import type { Clock } from '@try/utils';
 import { schema } from '@try/database';
 import type { Database, Transaction } from '@try/database';
 import type { Logger } from '@try/logger';
+import { hasNoObservedCapture } from '@try/contracts';
 import type { PaymentStatus } from '@try/contracts';
 import { DATABASE } from '../../common/database.module.js';
 import { CLOCK } from '../../common/clock.js';
@@ -15,21 +16,6 @@ import type { ProviderRefund } from './payment-provider.js';
 import { confirmReservationOnCapture, type ConfirmedReservationEffect } from './confirm-capture.js';
 
 const PROVIDER = 'STRIPE';
-/**
- * Statuts sous lesquels notre base n'a jamais vu de preuve d'encaissement :
- * `payment_intent.succeeded` n'a jamais ete applique (webhook perdu, ou
- * abandonne apres MAX_WEBHOOK_ATTEMPTS — voir payment.service.ts). Un
- * remboursement constate depuis l'un de ces statuts est la preuve que Stripe,
- * lui, avait bien pris l'argent : c'est le statut qui se corrige, jamais le
- * remboursement qui se refuse. `PROCESSING` n'est en pratique jamais ecrit par
- * apps/api ; inclus par prudence si un futur provider l'introduit.
- */
-const NEVER_CAPTURED_PAYMENT_STATUSES = new Set<PaymentStatus>([
-  'REQUIRES_PAYMENT',
-  'PROCESSING',
-  'FAILED',
-  'CANCELLED',
-]);
 /** Statuts de reservation ou un remboursement total sans annulation applicative est anormal. */
 const LIVE_RESERVATION_STATUSES = new Set(['CONFIRMED', 'CHECKED_IN']);
 
@@ -61,8 +47,8 @@ export interface RefundApplyResult {
   /**
    * Non-null uniquement quand ce remboursement vient de reveler un encaissement
    * dont le `payment_intent.succeeded` n'a jamais ete applique (voir
-   * `NEVER_CAPTURED_PAYMENT_STATUSES`) — c'est-a-dire quand `R > 0` a fait
-   * sortir le paiement d'un statut "jamais capture". Porte de quoi emettre
+   * `hasNoObservedCapture`, @try/contracts/payment-capture.ts) — c'est-a-dire
+   * quand `R > 0` a fait sortir le paiement d'un statut "jamais capture". Porte de quoi emettre
    * `PaymentSucceeded` apres commit ; ne peut se produire que via `apply()`
    * (chemin webhook) — `refundReservation` exige deja SUCCEEDED/
    * PARTIALLY_REFUNDED en entree, donc n'atteint jamais cette branche.
@@ -178,7 +164,8 @@ export class RefundLedgerService {
       // Ce remboursement vient de reveler un encaissement dont le
       // `payment_intent.succeeded` n'avait jamais ete applique : rejoue, apres
       // commit, exactement les evenements que ce webhook aurait produits — voir
-      // confirm-capture.ts et NEVER_CAPTURED_PAYMENT_STATUSES plus bas.
+      // confirm-capture.ts et hasNoObservedCapture (@try/contracts/payment-capture.ts)
+      // plus bas.
       if (result.capturedPayment) {
         if (result.capturedReservation) {
           this.events.emit('BookingConfirmed', {
@@ -286,7 +273,7 @@ export class RefundLedgerService {
     // Memorise AVANT toute ecriture : les statuts en jeu ici ne sont eux-memes
     // ecrits que par payment.service.ts, jamais par ce service — le lire
     // maintenant capture fidelement "ce qu'on savait avant ce remboursement".
-    const encaissementJamaisVu = NEVER_CAPTURED_PAYMENT_STATUSES.has(payment.status);
+    const encaissementJamaisVu = hasNoObservedCapture(payment.status);
 
     // 2. Tri : occurredAt croissant, puis providerRefundId pour lever l'egalite.
     // L'ordre determine l'attribution ligne a ligne, jamais le total.

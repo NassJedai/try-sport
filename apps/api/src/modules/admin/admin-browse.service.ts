@@ -3,31 +3,16 @@ import { asc, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
 import { money } from '@try/utils';
 import type { CurrencyCode } from '@try/utils';
 import {
+  isCapturedPayment,
   missingVenueSubmissionRequirements,
   VENUE_SUBMISSION_REQUIREMENT_LABELS_FR,
 } from '@try/contracts';
-import type { PaymentStatus, VenueSubmissionRequirement } from '@try/contracts';
+import type { VenueSubmissionRequirement } from '@try/contracts';
 import { schema } from '@try/database';
 import type { Database } from '@try/database';
 import { DATABASE } from '../../common/database.module.js';
 import { ApiException } from '../../common/errors/api-exception.js';
 import { isPlatformAdmin, type AuthenticatedUser } from '../../common/auth/current-user.js';
-
-/**
- * Statuts sous lesquels un encaissement a reellement eu lieu — le seul
- * ensemble ou une commission peut avoir ete generee.
- *
- * Duplique volontairement `moderation.service.ts:353-356` (meme trois
- * valeurs, meme raison d'etre) plutot que de partager une source : signale
- * au chef de projet plutot que factorise ici, cette tache n'ayant pas pour
- * perimetre de decider si cet ensemble doit devenir une seule source
- * partagee (dette deja identifiee, voir TODO.md du 17 aout).
- */
-const SETTLED_PAYMENT_STATUSES = new Set<PaymentStatus>([
-  'SUCCEEDED',
-  'PARTIALLY_REFUNDED',
-  'REFUNDED',
-]);
 
 /**
  * Vues de navigation du back-office : utilisateurs, réservations, paiements.
@@ -172,10 +157,8 @@ export class AdminBrowseService {
       platformFee: { amount: number; currency: string };
       /**
        * Commission nette du rembourse : platformFee - refundedPlatformFee,
-       * uniquement sur un paiement effectivement encaisse. Meme ensemble de
-       * statuts que l'agregat de moderation.service.ts:353-356 : un paiement
-       * qui n'a jamais capture (PENDING, FAILED, REQUIRES_PAYMENT...) n'a
-       * jamais genere de commission, quoi que portent ses colonnes brutes.
+       * uniquement sur un paiement effectivement encaisse (voir
+       * `isCapturedPayment`, @try/contracts/payment-capture.ts).
        */
       netPlatformFee: { amount: number; currency: string };
       refunded: { amount: number; currency: string };
@@ -208,13 +191,7 @@ export class AdminBrowseService {
     return {
       items: rows.map((row) => {
         const currency = row.currency as CurrencyCode;
-        // Meme ensemble que moderation.service.ts:353-356 : le seul jeu de
-        // statuts ou un encaissement a reellement eu lieu, donc ou une
-        // commission nette a un sens. Un paiement hors de cet ensemble
-        // (PENDING, FAILED, REQUIRES_PAYMENT, CANCELLED...) n'a jamais rien
-        // capture : le facturer serait facturer de l'argent qui n'a jamais
-        // change de main.
-        const captured = SETTLED_PAYMENT_STATUSES.has(row.status);
+        const captured = isCapturedPayment(row.status);
         return {
           id: row.id,
           status: row.status,

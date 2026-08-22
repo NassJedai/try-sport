@@ -1,8 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { applyBasisPoints, money } from '@try/utils';
 import type { CurrencyCode } from '@try/utils';
 import type { Clock } from '@try/utils';
+import { NEVER_CAPTURED_PAYMENT_STATUSES } from '@try/contracts';
 import { schema } from '@try/database';
 import type { Database, Executor, Transaction } from '@try/database';
 import type { Logger } from '@try/logger';
@@ -102,6 +103,12 @@ export class PaymentService {
    * also excludes REFUNDED/PARTIALLY_REFUNDED: Stripe does not guarantee event
    * order, and a `succeeded` delivered after a refund must not resurrect the
    * payment to SUCCEEDED and erase the refund from the books.
+   *
+   * The guard reuses `NEVER_CAPTURED_PAYMENT_STATUSES` (@try/contracts) — see
+   * the divergence note on `markFailed` below, which applies here too: this is
+   * an idempotency question ("already settled, do not overwrite"), not a
+   * revenue question ("does this count as GMV"), and the two happen to share
+   * an answer today but are not guaranteed to forever.
    */
   async markSucceeded(providerIntentId: string, providerChargeId?: string | null): Promise<void> {
     const now = this.clock.now();
@@ -122,7 +129,7 @@ export class PaymentService {
         .where(
           and(
             eq(schema.payments.providerPaymentIntentId, providerIntentId),
-            sql`${schema.payments.status} NOT IN ('SUCCEEDED', 'REFUNDED', 'PARTIALLY_REFUNDED')`,
+            inArray(schema.payments.status, NEVER_CAPTURED_PAYMENT_STATUSES),
           ),
         )
         .returning();
@@ -184,6 +191,20 @@ export class PaymentService {
    *
    * Excludes PARTIALLY_REFUNDED for the same reason as `markSucceeded`: an
    * out-of-order failure event must not erase a refund already on the books.
+   *
+   * This guard, and `markSucceeded`'s, share `NEVER_CAPTURED_PAYMENT_STATUSES`
+   * (@try/contracts/payment-capture.ts) with the platform's revenue aggregates
+   * (`admin-browse.service.ts`, `moderation.service.ts`). They are not quite
+   * the same question — idempotency asks "is this row already settled, so do
+   * not overwrite it", revenue asks "does this money count as GMV" — and they
+   * could legitimately diverge. **The trigger that would force the split**: a
+   * status where money was captured and then disputed (e.g. a Stripe
+   * chargeback/`DISPUTED`) would be "already settled" for idempotency (do not
+   * replay a webhook over it) while being excluded from revenue (the money can
+   * still leave). Kept shared today because six duplicated copies cost more
+   * than a hypothetical future divergence — but whoever introduces such a
+   * status must revisit this decision, not just add a row to the
+   * `PAYMENT_CAPTURE` table.
    */
   async markFailed(providerIntentId: string, failureCode: string | null): Promise<void> {
     const now = this.clock.now();
@@ -194,7 +215,7 @@ export class PaymentService {
       .where(
         and(
           eq(schema.payments.providerPaymentIntentId, providerIntentId),
-          sql`${schema.payments.status} NOT IN ('SUCCEEDED', 'REFUNDED', 'PARTIALLY_REFUNDED')`,
+          inArray(schema.payments.status, NEVER_CAPTURED_PAYMENT_STATUSES),
         ),
       )
       .returning();

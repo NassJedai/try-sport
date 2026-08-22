@@ -1,6 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, eq, sql } from 'drizzle-orm';
-import { assertOfferTransition, assertVenueTransition } from '@try/contracts';
+import {
+  assertOfferTransition,
+  assertVenueTransition,
+  CAPTURED_PAYMENT_STATUSES_SQL,
+} from '@try/contracts';
 import type { OfferStatus, VenueStatus } from '@try/contracts';
 import type { Clock } from '@try/utils';
 import { schema } from '@try/database';
@@ -347,13 +351,14 @@ export class ModerationService {
         (SELECT COUNT(*) FROM reservations WHERE checked_in_at IS NOT NULL)::int AS "checkIns",
         -- Net du rembourse : un remboursement partiel doit faire baisser le GMV et
         -- la commission affichee, pas seulement disparaitre d'un des deux chiffres.
-        -- PARTIALLY_REFUNDED et REFUNDED restent inclus (le brut a bien ete
-        -- encaisse), refunded_amount/refunded_platform_fee_amount portent la part
-        -- rendue.
+        -- L'ensemble de statuts "encaissement constate" vient de
+        -- @try/contracts/payment-capture.ts (CAPTURED_PAYMENT_STATUSES_SQL), qui
+        -- inclut PARTIALLY_REFUNDED et REFUNDED (le brut a bien ete encaisse),
+        -- refunded_amount/refunded_platform_fee_amount portent la part rendue.
         (SELECT COALESCE(SUM(amount - refunded_amount), 0) FROM payments
-          WHERE status IN ('SUCCEEDED', 'PARTIALLY_REFUNDED', 'REFUNDED'))::int AS "gmvMinor",
+          WHERE status IN (${sql.raw(CAPTURED_PAYMENT_STATUSES_SQL)}))::int AS "gmvMinor",
         (SELECT COALESCE(SUM(platform_fee_amount - refunded_platform_fee_amount), 0) FROM payments
-          WHERE status IN ('SUCCEEDED', 'PARTIALLY_REFUNDED', 'REFUNDED'))::int AS "platformRevenueMinor",
+          WHERE status IN (${sql.raw(CAPTURED_PAYMENT_STATUSES_SQL)}))::int AS "platformRevenueMinor",
         (SELECT COUNT(*) FROM leads WHERE status = 'CONVERTED')::int AS "conversions"
     `)) as unknown as Record<string, number>[];
 

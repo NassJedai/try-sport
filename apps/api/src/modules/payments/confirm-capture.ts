@@ -27,8 +27,9 @@ export interface ConfirmedReservationEffect {
  *
  * Extracted so the two paths that can discover a capture — the
  * `payment_intent.succeeded` webhook, and a refund revealing a capture whose
- * webhook was lost (see `NEVER_CAPTURED_PAYMENT_STATUSES` in
- * `refund-ledger.service.ts`) — cannot drift apart on what "confirmed" means.
+ * webhook was lost (see `hasNoObservedCapture`,
+ * `@try/contracts/payment-capture.ts`) — cannot drift apart on what
+ * "confirmed" means.
  */
 export async function confirmReservationOnCapture(
   tx: Transaction,
