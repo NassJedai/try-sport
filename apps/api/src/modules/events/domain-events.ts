@@ -16,6 +16,28 @@ import { LOGGER } from '../../common/logger.module.js';
  * Deliberately not Kafka. When a module needs to be extracted, these event names
  * are already the seam — the emit sites do not change, only the transport behind
  * this class.
+ *
+ * ## Emit after COMMIT — never from inside a transaction callback
+ *
+ * `on` wraps each handler in `void (async () => …)()`. An async function body
+ * runs *synchronously* up to its first `await`, so `emit` calls the handler
+ * inline: an async handler's opening database read is issued during the `emit`
+ * call itself. From inside a `db.transaction(...)` callback that means the read
+ * goes out while the transaction is still open, and — since handlers hold the
+ * pool (`this.db`), not the transaction — it runs on a connection that cannot
+ * see the uncommitted row. Every handler here used to treat "not found" as
+ * nothing to do, so booking confirmation emails went missing with no error and
+ * no log.
+ *
+ * This is not a rare race that lost: the read is dispatched before the COMMIT is
+ * even sent, so it misses essentially every time.
+ *
+ * Being the last statement in the callback does not help, and a rollback after
+ * the emit announces something that never happened. The pattern everywhere in
+ * this codebase: capture the payload in a local, `await` the transaction, then
+ * emit. `RefundLedgerService.apply`, `PaymentService.markSucceeded`,
+ * `BookingService.create`/`cancel`, `CheckInService.checkIn`,
+ * `BusinessService.updateLead` and `ReviewService.submit` all follow it.
  */
 
 export interface DomainEventMap {

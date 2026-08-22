@@ -563,11 +563,13 @@ export class BusinessService {
   }): Promise<LeadDto> {
     const now = this.clock.now();
 
-    return this.db.transaction(async (tx) => {
+    const { result, event } = await this.db.transaction(async (tx) => {
       const [existing] = await tx
         .select()
         .from(schema.leads)
-        .where(and(eq(schema.leads.id, input.leadId), eq(schema.leads.businessId, input.businessId)))
+        .where(
+          and(eq(schema.leads.id, input.leadId), eq(schema.leads.businessId, input.businessId)),
+        )
         .for('update')
         .limit(1);
 
@@ -635,40 +637,54 @@ export class BusinessService {
         .leftJoin(schema.profiles, eq(schema.profiles.userId, schema.leads.userId))
         .where(eq(schema.leads.id, input.leadId));
 
-      // Emitted last, and only here: every write and read this transaction
-      // needs has already succeeded by this point, so nothing that follows can
-      // still roll it back. `DomainEvents.emit` dispatches to listeners
-      // synchronously (see domain-events.ts) — firing it any earlier, before
-      // the audit insert or this re-read, would let a later failure roll back
-      // the conversion while an event announcing it had already gone out.
-      if (becomingConverted) {
-        this.events.emit('LeadConverted', {
-          leadId: existing.id,
-          businessId: input.businessId,
-          revenueMinor: input.dto.attributedRevenueAmount ?? 0,
-        });
-      }
-
       return {
-        id: updated.id,
-        status: updated.status,
-        firstName: display?.firstName ?? 'Invité',
-        offerTitle: display?.offerTitle ?? '',
-        categoryName: display?.categoryName ?? '',
-        visitedAt: updated.visitedAt?.toISOString() ?? null,
-        continuation: updated.continuation,
-        rating: updated.rating,
-        contactEmail: updated.contactConsentAt ? (display?.email ?? null) : null,
-        contactPhone: null,
-        notes: updated.notes,
-        convertedAt: updated.convertedAt?.toISOString() ?? null,
-        attributedRevenue:
-          updated.attributedRevenueAmount === null
-            ? null
-            : money(updated.attributedRevenueAmount, updated.currency as CurrencyCode),
-        updatedAt: updated.updatedAt.toISOString(),
+        result: {
+          id: updated.id,
+          status: updated.status,
+          firstName: display?.firstName ?? 'Invité',
+          offerTitle: display?.offerTitle ?? '',
+          categoryName: display?.categoryName ?? '',
+          visitedAt: updated.visitedAt?.toISOString() ?? null,
+          continuation: updated.continuation,
+          rating: updated.rating,
+          contactEmail: updated.contactConsentAt ? (display?.email ?? null) : null,
+          contactPhone: null,
+          notes: updated.notes,
+          convertedAt: updated.convertedAt?.toISOString() ?? null,
+          attributedRevenue:
+            updated.attributedRevenueAmount === null
+              ? null
+              : money(updated.attributedRevenueAmount, updated.currency as CurrencyCode),
+          updatedAt: updated.updatedAt.toISOString(),
+        },
+        event: becomingConverted
+          ? {
+              leadId: existing.id,
+              businessId: input.businessId,
+              revenueMinor: input.dto.attributedRevenueAmount ?? 0,
+            }
+          : null,
       };
     });
+
+    /**
+     * Emitted after COMMIT, never from inside the callback above.
+     *
+     * Being the last statement in the callback is not enough — position in
+     * the block does not decide this, the COMMIT does. `DomainEvents.on`
+     * wraps every handler in `void (async () => …)()`, and an async body runs
+     * synchronously up to its first `await`, so a handler reading the lead
+     * back through the pool would issue that read during the emit, still
+     * inside the transaction, against a connection that cannot see the
+     * conversion. The COMMIT can also still fail after the event has gone
+     * out. A comment used to sit here claiming the opposite — see
+     * `domain-events.ts` for the mechanism this codebase actually relies on.
+     */
+    if (event) {
+      this.events.emit('LeadConverted', event);
+    }
+
+    return result;
   }
 
   /**

@@ -44,7 +44,7 @@ export class CheckInService {
       ? this.verifyQrToken(dto.qrToken)
       : await this.resolveByShortCode(dto.venueId, dto.shortCode ?? '');
 
-    return this.db.transaction(async (tx) => {
+    const { result, event } = await this.db.transaction(async (tx) => {
       const [row] = await tx
         .select({
           reservation: schema.reservations,
@@ -146,29 +146,38 @@ export class CheckInService {
 
       const isFirstVisit = await this.isFirstVisit(tx, reservation.userId, reservation.venueId);
 
-      this.events.emit('CheckInCompleted', {
-        reservationId: reservation.id,
-        userId: reservation.userId,
-        businessId: reservation.businessId,
-        venueId: reservation.venueId,
-        method: dto.qrToken ? 'qr' : 'code',
-      });
-
       return {
-        reservationId: reservation.id,
-        status: 'CHECKED_IN',
-        checkedInAt: now.toISOString(),
-        attendee: {
-          firstName: row.firstName ?? 'Invité',
-          isFirstVisit,
+        result: {
+          reservationId: reservation.id,
+          status: 'CHECKED_IN' as const,
+          checkedInAt: now.toISOString(),
+          attendee: {
+            firstName: row.firstName ?? 'Invité',
+            isFirstVisit,
+          },
+          offer: { id: reservation.offerId, title: row.offerTitle },
+          slot: {
+            startAt: reservation.slotStartAt.toISOString(),
+            endAt: reservation.slotEndAt.toISOString(),
+          },
         },
-        offer: { id: reservation.offerId, title: row.offerTitle },
-        slot: {
-          startAt: reservation.slotStartAt.toISOString(),
-          endAt: reservation.slotEndAt.toISOString(),
+        event: {
+          reservationId: reservation.id,
+          userId: reservation.userId,
+          businessId: reservation.businessId,
+          venueId: reservation.venueId,
+          method: (dto.qrToken ? 'qr' : 'code') as 'qr' | 'code',
         },
       };
     });
+
+    // After COMMIT, for the same reason as `BookingService.create` — a
+    // listener issues its first read synchronously during the emit, through
+    // the pool, so from inside the callback it would query a connection that
+    // cannot yet see the check-in.
+    this.events.emit('CheckInCompleted', event);
+
+    return result;
   }
 
   /**

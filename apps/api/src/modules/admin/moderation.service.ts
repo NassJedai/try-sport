@@ -217,11 +217,11 @@ export class ModerationService {
     // Émis après le commit, jamais dedans — un `decideVenue` tient un `FOR
     // UPDATE` sur la ligne du lieu ; un fournisseur d'e-mail lent à l'intérieur
     // retiendrait ce verrou, et un événement émis avant le commit annoncerait
-    // une décision qu'un rollback peut encore annuler. Voir
-    // `VenueIdentityChanged` (onboarding.service.ts) et la correction de
-    // `LeadConverted` (business.service.ts) pour le même principe déjà appliqué
-    // ailleurs — à l'inverse de `BookingConfirmed`
-    // (`booking.service.ts:205`), dette connue, pas un modèle à suivre.
+    // une décision qu'un rollback peut encore annuler. Voir la section « Emit
+    // after COMMIT » de `domain-events.ts` pour le mécanisme, et
+    // `VenueIdentityChanged` (onboarding.service.ts), `LeadConverted`
+    // (business.service.ts), `BookingConfirmed`/`BookingCancelled`
+    // (booking.service.ts) pour le même principe appliqué ailleurs.
     this.events.emit('VenueModerationDecided', {
       venueId: input.venueId,
       businessId: result.businessId,

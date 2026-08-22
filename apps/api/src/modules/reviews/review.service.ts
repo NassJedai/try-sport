@@ -34,7 +34,7 @@ export class ReviewService {
   }): Promise<{ reviewId: string }> {
     const now = this.clock.now();
 
-    return this.db.transaction(async (tx) => {
+    const { reviewId, completed, submitted } = await this.db.transaction(async (tx) => {
       const [reservation] = await tx
         .select()
         .from(schema.reservations)
@@ -125,7 +125,8 @@ export class ReviewService {
 
       // Completing here as well as in the scheduled job: a user who reviews
       // immediately after the session should not wait for the sweeper.
-      if (reservation.status === 'CHECKED_IN') {
+      const isCompleting = reservation.status === 'CHECKED_IN';
+      if (isCompleting) {
         await tx
           .update(schema.reservations)
           .set({ status: 'COMPLETED', completedAt: now, updatedAt: now })
@@ -135,24 +136,37 @@ export class ReviewService {
           .update(schema.trialHistory)
           .set({ status: 'COMPLETED', completedAt: now, updatedAt: now })
           .where(eq(schema.trialHistory.reservationId, reservation.id));
-
-        this.events.emit('TrialCompleted', {
-          reservationId: reservation.id,
-          userId: reservation.userId,
-          businessId: reservation.businessId,
-          venueId: reservation.venueId,
-        });
       }
 
-      this.events.emit('ReviewSubmitted', {
-        reservationId: reservation.id,
-        userId: reservation.userId,
-        venueId: reservation.venueId,
-        rating: input.dto.rating,
-      });
-
-      return { reviewId };
+      return {
+        reviewId,
+        completed: isCompleting
+          ? {
+              reservationId: reservation.id,
+              userId: reservation.userId,
+              businessId: reservation.businessId,
+              venueId: reservation.venueId,
+            }
+          : null,
+        submitted: {
+          reservationId: reservation.id,
+          userId: reservation.userId,
+          venueId: reservation.venueId,
+          rating: input.dto.rating,
+        },
+      };
     });
+
+    // After COMMIT, and in the original order. An async listener issues its
+    // first read synchronously during the emit, through the pool — which
+    // cannot see rows this transaction has not committed yet.
+    if (completed) {
+      this.events.emit('TrialCompleted', completed);
+    }
+
+    this.events.emit('ReviewSubmitted', submitted);
+
+    return { reviewId };
   }
 
   /**

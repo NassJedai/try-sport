@@ -79,7 +79,7 @@ export class BookingService {
   }): Promise<CreateBookingResult> {
     const now = this.clock.now();
 
-    return this.db.transaction(async (tx) => {
+    const { result, event } = await this.db.transaction(async (tx) => {
       const context = await this.loadBookingContext(tx, input.dto.slotId);
 
       if (context.offer.status !== 'ACTIVE') {
@@ -202,9 +202,14 @@ export class BookingService {
         });
       }
 
-      this.events.emit(
-        requiresPayment ? 'BookingPaymentPending' : 'BookingConfirmed',
-        {
+      return {
+        result: {
+          reservationId,
+          status: requiresPayment ? ('PAYMENT_PENDING' as const) : ('CONFIRMED' as const),
+          requiresPayment,
+          clientSecret,
+        },
+        event: {
           reservationId,
           userId: input.userId,
           businessId: context.business.id,
@@ -212,20 +217,36 @@ export class BookingService {
           offerId: context.offer.id,
           isFree: !requiresPayment,
         },
-      );
-
-      this.logger.info(
-        { reservationId, offerId: context.offer.id, requiresPayment },
-        'reservation created',
-      );
-
-      return {
-        reservationId,
-        status: requiresPayment ? 'PAYMENT_PENDING' : 'CONFIRMED',
-        requiresPayment,
-        clientSecret,
       };
     });
+
+    /**
+     * Emitted after COMMIT, never from inside the callback above — see the
+     * "Emit after COMMIT" section of `domain-events.ts` for why. In short:
+     * `DomainEvents.on` wraps handlers in `void (async () => …)()`, and an
+     * async body runs synchronously up to its first `await`, so from inside
+     * the callback `BookingLifecycleListener` would issue its read *during*
+     * the emit, while the transaction is still open. That read goes through
+     * the pool, a connection that cannot see the uncommitted reservation, so
+     * it finds nothing and used to return early with no error and no log
+     * (see `booking-lifecycle.listener.ts`). Emitting here also means a
+     * later rollback can no longer announce a booking that never existed.
+     */
+    this.events.emit(
+      result.requiresPayment ? 'BookingPaymentPending' : 'BookingConfirmed',
+      event,
+    );
+
+    this.logger.info(
+      {
+        reservationId: result.reservationId,
+        offerId: event.offerId,
+        requiresPayment: result.requiresPayment,
+      },
+      'reservation created',
+    );
+
+    return result;
   }
 
   /**
@@ -241,7 +262,7 @@ export class BookingService {
   }): Promise<{ refunded: boolean }> {
     const now = this.clock.now();
 
-    return this.db.transaction(async (tx) => {
+    const event = await this.db.transaction(async (tx) => {
       const [reservation] = await tx
         .select()
         .from(schema.reservations)
@@ -300,15 +321,20 @@ export class BookingService {
         });
       }
 
-      this.events.emit('BookingCancelled', {
+      return {
         reservationId: reservation.id,
         userId: reservation.userId,
         businessId: reservation.businessId,
         refunded,
-      });
-
-      return { refunded };
+      };
     });
+
+    // After COMMIT, for the reasons spelled out in `create` above: a listener
+    // reading through the pool must be able to see the cancelled row, and a
+    // rollback must not leave an announced cancellation that never happened.
+    this.events.emit('BookingCancelled', event);
+
+    return { refunded: event.refunded };
   }
 
   /**

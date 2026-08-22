@@ -64,7 +64,22 @@ export class BookingLifecycleListener implements OnModuleInit {
       .where(eq(schema.reservations.id, reservationId))
       .limit(1);
 
-    if (!row) return;
+    /**
+     * A missing row here used to be a bare `return`. When emitters still
+     * fired from inside their transaction, this read was issued before the
+     * COMMIT and found nothing, and the confirmation email vanished with no
+     * error and no log. The emitters are fixed (see the "Emit after COMMIT"
+     * section of `domain-events.ts`), but the failure must never be silent
+     * again — a booking that reaches this point and cannot be read back is a
+     * real anomaly worth an alert.
+     */
+    if (!row) {
+      this.logger.error(
+        { reservationId },
+        'confirmation email dropped: reservation not readable after BookingConfirmed',
+      );
+      return;
+    }
 
     await this.notifications.sendBookingConfirmation({
       email: row.email,

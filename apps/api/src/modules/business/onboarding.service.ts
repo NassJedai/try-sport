@@ -469,9 +469,10 @@ export class OnboardingService {
       return { businessId: existing.businessId, identityChanges };
     });
 
-    // Émis après le commit, jamais dedans — voir refund-ledger.service.ts et
-    // la correction de LeadConverted (business.service.ts) : un abonné ne
-    // doit jamais apprendre un changement qu'un rollback peut encore annuler.
+    // Émis après le commit, jamais dedans — voir la section « Emit after
+    // COMMIT » de domain-events.ts, refund-ledger.service.ts et LeadConverted
+    // (business.service.ts) : un abonné ne doit jamais apprendre un
+    // changement qu'un rollback peut encore annuler.
     if (result.identityChanges.length > 0) {
       this.events.emit('VenueIdentityChanged', {
         venueId: input.venueId,

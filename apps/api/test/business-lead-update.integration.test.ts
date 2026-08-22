@@ -233,13 +233,11 @@ describeIfDatabase('BusinessService.updateLead', () => {
   });
 
   it("émet LeadConverted exactement une fois pour une vraie conversion, jamais pour une mise à jour qui n'en est pas une", async () => {
-    // `DomainEvents.emit` dispatche de façon synchrone (voir domain-events.ts) :
-    // l'émettre avant l'audit insert ou la relecture finale de la transaction
-    // laisserait un échec plus tardif faire un rollback de la conversion tout
-    // en laissant l'événement déjà parti. Il doit être la toute dernière
-    // opération de la transaction — ce test vérifie seulement qu'il part bien,
-    // une fois, au bon déclencheur ; il ne peut pas simuler un rollback tardif
-    // sans injection de panne.
+    // `updateLead` émet APRÈS que sa transaction a commit, jamais depuis
+    // l'intérieur — voir la section « Emit after COMMIT » de domain-events.ts.
+    // Ce test vérifie seulement qu'il part bien, une fois, au bon déclencheur ;
+    // l'ordre commit/emit lui-même est couvert par
+    // domain-events-after-commit.integration.test.ts.
     const { leadId, businessId, cleanup } = await seedLead();
     cleanups.push(cleanup);
     const actor = actorFor(businessId);
