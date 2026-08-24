@@ -89,8 +89,42 @@ describe('configuration', () => {
       RESEND_API_KEY: 're_x',
       CORS_ALLOWED_ORIGINS: 'https://app.try.be',
       API_PUBLIC_URL: 'https://api.try.be',
+      STORAGE_PUBLIC_BASE_URL: 'https://cdn.try.be/media',
     });
     expect(config.isProduction).toBe(true);
     expect(config.RATE_LIMIT_ENABLED).toBe(true);
+    expect(config.STORAGE_PUBLIC_BASE_URL).toBe('https://cdn.try.be/media');
+  });
+
+  it('refuses to start production without an explicit STORAGE_PUBLIC_BASE_URL', () => {
+    // Deviner une adresse de CDN serait dangereux : contrairement au cas
+    // local, il n'y a pas de dérivation possible ici.
+    expect(() =>
+      loadConfig({
+        ...validLocal,
+        APP_ENV: 'production',
+        REDIS_URL: 'redis://localhost:6379',
+        STRIPE_SECRET_KEY: 'sk_live_x',
+        STRIPE_WEBHOOK_SECRET: 'whsec_x',
+        RESEND_API_KEY: 're_x',
+        CORS_ALLOWED_ORIGINS: 'https://app.try.be',
+      }),
+    ).toThrow(/STORAGE_PUBLIC_BASE_URL/);
+  });
+
+  it('derives a media URL from this machine\x27s network address when none is set locally', () => {
+    // Pas d'assertion sur l'IP exacte : elle dépend de la machine qui fait
+    // tourner le test. Seule la forme compte — voir apps/mobile/src/api/client.ts:50-71
+    // pour le même raisonnement côté client.
+    const config = loadConfig(validLocal);
+    expect(config.STORAGE_PUBLIC_BASE_URL).toMatch(/^http:\/\/[^/]+:3000\/media$/);
+  });
+
+  it('keeps an explicit STORAGE_PUBLIC_BASE_URL even locally, never overriding it', () => {
+    const config = loadConfig({
+      ...validLocal,
+      STORAGE_PUBLIC_BASE_URL: 'http://192.168.1.50:3000/media',
+    });
+    expect(config.STORAGE_PUBLIC_BASE_URL).toBe('http://192.168.1.50:3000/media');
   });
 });

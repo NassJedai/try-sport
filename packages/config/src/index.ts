@@ -1,3 +1,4 @@
+import { networkInterfaces } from 'node:os';
 import { z } from 'zod';
 
 /**
@@ -61,7 +62,24 @@ const baseSchema = z.object({
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
 
-  STORAGE_PUBLIC_BASE_URL: z.url().default('http://localhost:3000/media'),
+  /**
+   * URL publique utilisée pour composer le lien d'une image (voir
+   * `MediaService.publicUrl`). Une valeur explicite garde toujours la
+   * priorité et est obligatoire en préproduction/production (voir le
+   * `superRefine` plus bas) : c'est là qu'elle pointe vers un CDN, et deviner
+   * une adresse de CDN serait dangereux.
+   *
+   * En son absence — en local uniquement, la valeur restant requise ailleurs
+   * — `loadConfig` la dérive de l'adresse réseau réellement utilisée par
+   * cette machine. C'est le pendant serveur de `resolveApiUrl()` dans
+   * `apps/mobile/src/api/client.ts:50-71` : l'app mobile déduit l'adresse de
+   * l'API depuis l'hôte Expo parce que « localhost » ne veut rien dire depuis
+   * un téléphone ; ici, l'API déduit sa propre adresse pour la même raison,
+   * côté image plutôt que côté API. Un `.env` avec une IP figée casse dès que
+   * la box redistribue les adresses — exactement le bug que cette dérivation
+   * évite.
+   */
+  STORAGE_PUBLIC_BASE_URL: z.url().optional(),
   STORAGE_BUCKET: z.string().default('try-media'),
   /**
    * Où les fichiers uploadés vivent en local. En production, un stockage objet
@@ -82,7 +100,9 @@ const baseSchema = z.object({
   AUTH_DEV_ECHO_OTP: booleanFromString.default(false),
 });
 
-export type AppConfig = z.infer<typeof baseSchema> & {
+export type AppConfig = Omit<z.infer<typeof baseSchema>, 'STORAGE_PUBLIC_BASE_URL'> & {
+  /** Toujours résolue : dérivée en local si absente de l'environnement, voir `loadConfig`. */
+  STORAGE_PUBLIC_BASE_URL: string;
   isProduction: boolean;
   isLocal: boolean;
 };
@@ -132,9 +152,46 @@ const configSchema = baseSchema.superRefine((config, ctx) => {
       message: 'Wildcard CORS is not permitted for authenticated endpoints.',
     });
   }
+  if (!config.STORAGE_PUBLIC_BASE_URL) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['STORAGE_PUBLIC_BASE_URL'],
+      message:
+        'STORAGE_PUBLIC_BASE_URL is required outside local development: it must point at ' +
+        'the CDN explicitly, never be guessed from a network interface.',
+    });
+  }
 });
 
 export class ConfigurationError extends Error {}
+
+/**
+ * Devine l'adresse à laquelle cette machine est joignable sur le réseau
+ * local — le pendant serveur de `resolveApiUrl()` dans
+ * `apps/mobile/src/api/client.ts:50-71`. Là-bas, l'app mobile déduit
+ * l'adresse de l'API depuis l'hôte Expo parce que « localhost » depuis un
+ * téléphone pointe vers le téléphone lui-même ; ici, c'est le même problème
+ * pour les URLs d'image que l'API renvoie à ce téléphone.
+ *
+ * Best-effort : première interface IPv4 non interne trouvée. Une machine
+ * avec plusieurs interfaces actives (VPN, réseau partagé…) peut en avoir
+ * plusieurs — rien ici ne sait laquelle est « la bonne » pour joindre un
+ * téléphone sur le même Wi-Fi. Sans interface externe (CI, conteneur sans
+ * réseau hôte), retombe sur `localhost` : ça ne sert plus un téléphone, mais
+ * ça ne bloque pas non plus un démarrage local sans réseau.
+ */
+function guessLanAddress(): string {
+  for (const entries of Object.values(networkInterfaces())) {
+    for (const entry of entries ?? []) {
+      if (entry.family === 'IPv4' && !entry.internal) return entry.address;
+    }
+  }
+  return 'localhost';
+}
+
+function deriveStoragePublicBaseUrl(port: number): string {
+  return `http://${guessLanAddress()}:${port}/media`;
+}
 
 export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
   const result = configSchema.safeParse(source);
@@ -148,6 +205,11 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
 
   return {
     ...result.data,
+    // Garanti non vide ici : le superRefine ci-dessus rend la valeur
+    // obligatoire hors développement local, donc `undefined` ne peut
+    // survenir que dans le cas où la dérivation est sûre.
+    STORAGE_PUBLIC_BASE_URL:
+      result.data.STORAGE_PUBLIC_BASE_URL ?? deriveStoragePublicBaseUrl(result.data.PORT),
     isProduction: result.data.APP_ENV === 'production',
     isLocal: result.data.APP_ENV === 'local',
   };
