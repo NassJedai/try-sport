@@ -5,11 +5,14 @@ import {
   allowedTransitionsFrom,
   assertTransition,
   canTransition,
+  CAPACITY_HOLDING_STATUSES,
   consumesTrial,
   holdsCapacity,
   InvalidReservationTransitionError,
   isLiveReservationStatus,
   isTerminalReservationStatus,
+  TERMINAL_RESERVATION_STATUSES,
+  TRIAL_CONSUMING_STATUSES,
 } from './reservation-state-machine.js';
 
 describe('reservation state machine', () => {
@@ -114,5 +117,59 @@ describe('reservation state machine', () => {
       const live = RESERVATION_STATUSES.filter(isLiveReservationStatus);
       expect(live).toEqual(['PENDING', 'PAYMENT_PENDING', 'CONFIRMED']);
     });
+  });
+});
+
+/**
+ * Les conséquences d'un statut, et non plus seulement ses transitions.
+ *
+ * Le compilateur exigeait déjà une ligne de transitions pour tout nouveau
+ * statut. Il n'exigeait rien sur les conséquences : place occupée et essai
+ * consommé vivaient dans des tableaux littéraux, et un statut ajouté n'y
+ * figurait pas — il ne retenait donc aucune place et ne consommait aucun essai,
+ * en silence. Ces deux réponses sont l'argent et l'essai.
+ *
+ * Ces tests vérifient ce qu'un type ne peut pas vérifier : que la table dit vrai
+ * et que les listes dérivées ne dérivent pas de leurs prédicats.
+ */
+describe('conséquences d’un statut de réservation', () => {
+  it('répond aux trois questions pour chaque statut, sans trou', () => {
+    for (const status of RESERVATION_STATUSES) {
+      expect(typeof holdsCapacity(status)).toBe('boolean');
+      expect(typeof consumesTrial(status)).toBe('boolean');
+      expect(typeof isLiveReservationStatus(status)).toBe('boolean');
+    }
+  });
+
+  it('garde les listes exportées alignées sur leurs prédicats', () => {
+    // `TRIAL_CONSUMING_STATUSES` part en SQL (`inArray`) dans deux services :
+    // une liste qui diverge de `consumesTrial()` ferait répondre deux choses
+    // différentes à la même question selon la couche.
+    expect(CAPACITY_HOLDING_STATUSES).toEqual(RESERVATION_STATUSES.filter(holdsCapacity));
+    expect(TRIAL_CONSUMING_STATUSES).toEqual(RESERVATION_STATUSES.filter(consumesTrial));
+  });
+
+  it('déduit « terminal » de la table des transitions plutôt que de le déclarer', () => {
+    // Une liste écrite à la main pouvait affirmer qu'un statut est terminal
+    // alors que des transitions en partaient.
+    expect(TERMINAL_RESERVATION_STATUSES).toEqual(
+      RESERVATION_STATUSES.filter((status) => allowedTransitionsFrom(status).length === 0),
+    );
+    expect(TERMINAL_RESERVATION_STATUSES).toEqual(['REFUNDED', 'EXPIRED']);
+  });
+
+  it('ne consomme jamais un essai sans occuper une place', () => {
+    // Règle métier : la salle ne perd un essai que si elle a bloqué la place
+    // correspondante. L'inverse est permis — une place peut être tenue sans que
+    // l'essai soit consommé —, mais pas celui-ci.
+    for (const status of RESERVATION_STATUSES) {
+      if (consumesTrial(status)) expect(holdsCapacity(status)).toBe(true);
+    }
+  });
+
+  it('ne laisse aucun statut terminal actionnable depuis l’app', () => {
+    for (const status of TERMINAL_RESERVATION_STATUSES) {
+      expect(isLiveReservationStatus(status)).toBe(false);
+    }
   });
 });

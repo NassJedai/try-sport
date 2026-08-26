@@ -28,7 +28,7 @@ describe('classification des champs', () => {
       expect(venueFieldClass(field)).toBe('FREE');
       expect(isSensitiveVenueField(field)).toBe(false);
     }
-    for (const field of ['capacity', 'skillLevel', 'whatToBring', 'conditions', 'cancellationPolicy', 'trialRule'] as const) {
+    for (const field of ['capacity', 'skillLevel', 'whatToBring', 'conditions', 'cancellationPolicy'] as const) {
       expect(offerFieldClass(field)).toBe('FREE');
       expect(isSensitiveOfferField(field)).toBe(false);
     }
@@ -48,6 +48,18 @@ describe('classification des champs', () => {
     expect(offerFieldClass('currency')).toBe('MODERATED');
     expect(offerFieldClass('experienceType')).toBe('MODERATED');
     expect(offerFieldClass('categoryId')).toBe('MODERATED');
+    /**
+     * `trialRule` était classé `FREE` jusqu'au 2026-08-26 : ce test décrivait
+     * donc la règle inverse, et la règle a changé — ce n'est pas un test
+     * affaibli pour faire passer du code. Motif : la règle d'essai décide qui a
+     * droit au tarif affiché et combien de fois. Passer une offre en ligne de
+     * « un essai par lieu » à « aucune restriction » transforme après coup une
+     * séance découverte en réduction permanente, sans qu'aucun modérateur ne
+     * voie passer quoi que ce soit. C'est le même abus que remonter le prix,
+     * pris par l'autre bout.
+     */
+    expect(offerFieldClass('trialRule')).toBe('MODERATED');
+    expect(isSensitiveOfferField('trialRule')).toBe(true);
     expect(venueFieldClass('categoryIds')).toBe('MODERATED');
     expect(venueFieldClass('description')).toBe('MODERATED');
   });
@@ -154,6 +166,20 @@ describe('une salle en ligne', () => {
     expect(venueFieldEditDecision('ACTIVE', 'categoryIds')).toBe('FORBIDDEN');
     expect(offerFieldEditDecision('ACTIVE', 'categoryId')).toBe('FORBIDDEN');
     expect(offerFieldEditDecision('ACTIVE', 'experienceType')).toBe('FORBIDDEN');
+  });
+
+  it('n’ouvre pas l’allocation d’essai d’une offre déjà validée', () => {
+    // Le défaut mesuré : `trialRule` étant libre, un gérant faisait passer une
+    // offre en ligne de « un essai par lieu » à « aucune restriction » sans
+    // modération ni alerte admin. Le prix affiché ne bougeait pas — il devenait
+    // simplement valable indéfiniment.
+    for (const status of ['ACTIVE', 'PAUSED', 'PENDING_APPROVAL'] as const) {
+      expect(offerFieldEditDecision(status, 'trialRule')).toBe('FORBIDDEN');
+      expect(canEditOfferField(status, 'trialRule')).toBe(false);
+    }
+    // Elle reste corrigeable là où le dossier n'est pas figé.
+    expect(offerFieldEditDecision('DRAFT', 'trialRule')).toBe('ALLOWED');
+    expect(offerFieldEditDecision('REJECTED', 'trialRule')).toBe('ALLOWED');
   });
 
   it('garde ses horaires, son téléphone et sa capacité sous son seul contrôle', () => {

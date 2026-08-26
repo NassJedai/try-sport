@@ -21,9 +21,11 @@ import type { UpdateOfferDto } from './schemas/offers.js';
  *   disparaître du catalogue le temps d'une re-validation ; en revanche la
  *   plateforme ne peut pas l'apprendre par hasard.
  * - `MODERATED` — prix, prix de référence, catégories, type d'expérience,
- *   description, titre, durée. Gelé une fois le dossier examiné. Passer une
- *   séance découverte de 5 € à 45 € après approbation est précisément l'abus que
- *   la modération existe pour empêcher.
+ *   description, titre, durée, **règle d'essai**. Gelé une fois le dossier
+ *   examiné. Passer une séance découverte de 5 € à 45 € après approbation est
+ *   précisément l'abus que la modération existe pour empêcher — et ouvrir
+ *   l'allocation d'essai d'une offre en ligne est le même abus par l'autre bout :
+ *   le prix ne bouge pas, mais il devient valable indéfiniment.
  *
  * Cette règle vit ici parce que trois consommateurs l'appliquent : l'API (refus
  * d'écriture et déclenchement de la notification), le tableau de bord des salles
@@ -117,7 +119,19 @@ const OFFER_FIELD_CLASS: Record<keyof UpdateOfferDto, OfferFieldClass> = {
   whatToBring: 'FREE',
   conditions: 'FREE',
   cancellationPolicy: 'FREE',
-  trialRule: 'FREE',
+  /**
+   * Modérée depuis le 2026-08-26, elle était libre. Ce n'est pas un réglage
+   * d'exploitation : `trialRule` décide *qui* a droit au tarif affiché et
+   * combien de fois. Passer une offre validée de « un essai par lieu » à
+   * « aucune restriction » transforme après coup une séance découverte en
+   * réduction permanente — le même abus que remonter le prix, dans l'autre sens,
+   * et sur le champ que la modération n'avait justement pas vu changer.
+   *
+   * La contrepartie est posée à la création : une offre à tarif découverte ne
+   * peut pas naître en `NO_RESTRICTION` (`offerTrialConfigurationIsCoherent`).
+   * Gelée en ligne, elle ne peut donc pas non plus le devenir.
+   */
+  trialRule: 'MODERATED',
 };
 
 /**

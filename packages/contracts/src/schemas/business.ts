@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   BUSINESS_ROLES,
+  CONTINUATION_ANSWERS,
   LEAD_STATUSES,
   OFFER_STATUSES,
   RESERVATION_STATUSES,
@@ -19,6 +20,7 @@ import {
   isoDateTimeSchema,
   moneySchema,
   partialUpdateOf,
+  timeOfDaySchema,
   uuidSchema,
 } from './common.js';
 import { openingHoursSchema } from './offers.js';
@@ -136,8 +138,12 @@ export const recurringScheduleSchema = z.object({
   offerId: uuidSchema,
   /** 0 = Sunday. A rule may cover several days with the same start time. */
   daysOfWeek: z.array(z.int().min(0).max(6)).min(1).max(7),
-  /** Venue-local wall clock. Stored as-is and resolved to UTC per occurrence. */
-  startTime: z.string().regex(/^\d{2}:\d{2}$/),
+  /**
+   * Heure murale du lieu, stockée telle quelle et résolue en UTC à chaque
+   * occurrence. Bornée à 00:00–23:59 par `timeOfDaySchema` : le format seul
+   * laissait passer `29:59`, que `Date.UTC` transformait en 05:59 le lendemain.
+   */
+  startTime: timeOfDaySchema,
   capacity: z.int().min(1).max(500),
   validFrom: z.iso.date(),
   validUntil: z.iso.date().nullable().default(null),
@@ -199,7 +205,14 @@ export const leadSchema = z.object({
   offerTitle: z.string(),
   categoryName: z.string(),
   visitedAt: isoDateTimeSchema.nullable(),
-  continuation: z.enum(['YES', 'MAYBE', 'NO']).nullable(),
+  /**
+   * `CONTINUATION_ANSWERS` et non une recopie manuelle : l'enum était réécrit
+   * ici alors que `submitReviewSchema` l'importait déjà. Mesuré — ajouter un
+   * membre cassait `lead-pipeline.ts` mais pas ce schéma, donc le serveur
+   * pouvait écrire une réponse que sa propre sortie de contrat déclarait
+   * impossible, et le tableau de bord du gérant l'aurait rejetée à la lecture.
+   */
+  continuation: z.enum(CONTINUATION_ANSWERS).nullable(),
   rating: z.int().min(1).max(5).nullable(),
   /** Present only after the user consented to be contacted. */
   contactEmail: z.email().nullable(),
@@ -233,6 +246,11 @@ export const businessBookingSchema = z.object({
   /** Needed by the front desk: check-in is always scoped to a specific venue. */
   venueId: uuidSchema,
   venueName: z.string(),
+  /**
+   * IANA, celui du lieu. Même motif que `businessSlotSchema` : la liste des
+   * arrivées du jour affichait ses heures dans un fuseau codé en dur.
+   */
+  venueTimeZone: z.string(),
   attendeeFirstName: z.string(),
   isFirstVisit: z.boolean(),
   offerTitle: z.string(),
@@ -353,12 +371,23 @@ export const businessVenueSchema = z.object({
 });
 export type BusinessVenueDto = z.infer<typeof businessVenueSchema>;
 
-/** Un créneau du planning, avec son remplissage. */
+/**
+ * Un créneau du planning, avec son remplissage.
+ *
+ * `venueTimeZone` voyage avec le créneau, et ce n'est pas un confort : sans lui,
+ * l'écran n'a pas de quoi afficher une heure juste. Mesuré — le tableau de bord
+ * codait `Europe/Brussels` en dur faute de mieux, ce qui affiche une heure fausse
+ * dès la première salle hors de Belgique et contredit l'invariant « horodatage en
+ * UTC, affiché dans le fuseau de la salle ». `bookingSchema` transporte déjà
+ * `venue.timeZone` ; ce DTO-ci ne le faisait pas.
+ */
 export const businessSlotSchema = z.object({
   id: uuidSchema,
   offerId: uuidSchema,
   offerTitle: z.string(),
   venueName: z.string(),
+  /** IANA, celui du lieu. Les deux instants ci-dessous s'affichent dedans, jamais dans celui du navigateur. */
+  venueTimeZone: z.string(),
   startAt: isoDateTimeSchema,
   endAt: isoDateTimeSchema,
   capacity: z.int().positive(),

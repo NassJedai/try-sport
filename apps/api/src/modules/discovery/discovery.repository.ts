@@ -28,6 +28,7 @@ export interface OfferCardRow extends Record<string, unknown> {
   category_name: string;
   venue_id: string;
   venue_name: string;
+  venue_time_zone: string;
   venue_latitude: number;
   venue_longitude: number;
   district_name: string | null;
@@ -189,6 +190,7 @@ export class DiscoveryRepository {
         c.name  AS category_name,
         v.id    AS venue_id,
         v.name  AS venue_name,
+        v.time_zone AS venue_time_zone,
         v.latitude  AS venue_latitude,
         v.longitude AS venue_longitude,
         d.name  AS district_name,
@@ -340,7 +342,7 @@ export class DiscoveryRepository {
         o.id, o.title, o.experience_type, o.price_amount, o.reference_price_amount,
         o.currency, o.duration_minutes, o.published_at, o.trial_count, o.conversion_count,
         c.slug AS category_slug, c.name AS category_name,
-        v.id AS venue_id, v.name AS venue_name,
+        v.id AS venue_id, v.name AS venue_name, v.time_zone AS venue_time_zone,
         v.latitude AS venue_latitude, v.longitude AS venue_longitude,
         d.name AS district_name,
         v.average_rating_hundredths AS average_rating, v.review_count,
@@ -425,12 +427,26 @@ export class DiscoveryRepository {
     }[];
   }
 
-  /** Interest category ids for personalising the ranking. */
-  async findUserInterestCategoryIds(userId: string): Promise<string[]> {
+  /**
+   * Interest category *slugs* for personalising the ranking — not ids.
+   *
+   * `user_interests.category_id` is a uuid; `OfferCardRow.category_slug` (the
+   * only category identifier the ranking candidates carry) is a string like
+   * `yoga`. Returning ids here made `discovery.service.ts`'s
+   * `interestSet.has(row.category_slug)` compare a uuid against a slug —
+   * always false, so `personalization` never contributed to the score and the
+   * "Pour toi" rail always built empty (fixed 2026-08-26). Joining to
+   * `categories` here, once, keeps every caller comparing the same kind of
+   * value it already has.
+   */
+  async findUserInterestCategorySlugs(userId: string): Promise<string[]> {
     const rows = await this.db.execute(
-      sql`SELECT category_id FROM user_interests WHERE user_id = ${userId}`,
+      sql`SELECT c.slug AS category_slug
+          FROM user_interests ui
+          JOIN categories c ON c.id = ui.category_id
+          WHERE ui.user_id = ${userId}`,
     );
-    return (rows as unknown as { category_id: string }[]).map((row) => row.category_id);
+    return (rows as unknown as { category_slug: string }[]).map((row) => row.category_slug);
   }
 
   async findFavoriteOfferIds(userId: string, offerIds: string[]): Promise<Set<string>> {

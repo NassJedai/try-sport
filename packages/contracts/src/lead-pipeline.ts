@@ -1,3 +1,4 @@
+import { LEAD_STATUSES } from './enums.js';
 import type { ContinuationAnswer, LeadStatus } from './enums.js';
 
 /**
@@ -13,11 +14,42 @@ import type { ContinuationAnswer, LeadStatus } from './enums.js';
  * see them reappear as a fresh "interested" lead because of a late review.
  */
 
-/** Statuses a venue has deliberately set; automation must not overwrite them. */
-const OPERATOR_OWNED: readonly LeadStatus[] = ['CONTACTED', 'CONVERTED', 'LOST'];
+/**
+ * Ce que chaque statut est, pour les deux règles qui en dépendent.
+ *
+ * `Record<LeadStatus, LeadStatusRole>` et non trois listes : la règle « à sens
+ * unique » ne tient que si *tout* statut est classé. Un statut ajouté à
+ * `LEAD_STATUSES` et absent d'une liste littérale était par défaut « pas possédé
+ * par le gérant » — donc écrasable par un avis client arrivé trois jours plus
+ * tard. C'est exactement le retour en arrière que ce fichier existe pour
+ * interdire. Ici, l'oubli ne compile pas.
+ */
+interface LeadStatusRole {
+  /**
+   * Statut posé délibérément par la salle ; l'automatisation ne doit pas
+   * l'écraser.
+   */
+  readonly operatorOwned: boolean;
+  /** Rien ne se passe plus après : le lead est signé ou perdu. */
+  readonly terminal: boolean;
+  /**
+   * Position dans l'entonnoir pour le reporting, `null` quand le statut est hors
+   * entonnoir. `LOST` n'est pas une étape : c'est une sortie.
+   */
+  readonly funnelRank: number | null;
+}
+
+const LEAD_STATUS_ROLE: Record<LeadStatus, LeadStatusRole> = {
+  NEW: { operatorOwned: false, terminal: false, funnelRank: 0 },
+  ATTENDED: { operatorOwned: false, terminal: false, funnelRank: 1 },
+  INTERESTED: { operatorOwned: false, terminal: false, funnelRank: 2 },
+  CONTACTED: { operatorOwned: true, terminal: false, funnelRank: 3 },
+  CONVERTED: { operatorOwned: true, terminal: true, funnelRank: 4 },
+  LOST: { operatorOwned: true, terminal: true, funnelRank: null },
+};
 
 export function isOperatorOwnedStatus(status: LeadStatus): boolean {
-  return OPERATOR_OWNED.includes(status);
+  return LEAD_STATUS_ROLE[status].operatorOwned;
 }
 
 /**
@@ -43,15 +75,20 @@ export function leadStatusAfterContinuation(
   }
 }
 
-/** Ordering used for funnel reporting; not a constraint on transitions. */
-export const LEAD_PIPELINE_ORDER: readonly LeadStatus[] = [
-  'NEW',
-  'ATTENDED',
-  'INTERESTED',
-  'CONTACTED',
-  'CONVERTED',
-];
+/**
+ * Ordering used for funnel reporting; not a constraint on transitions.
+ *
+ * Dérivé de `LEAD_STATUS_ROLE` : une liste écrite à la main pouvait omettre un
+ * statut sans que rien ne le signale, et l'entonnoir aurait alors compté faux.
+ */
+export const LEAD_PIPELINE_ORDER: readonly LeadStatus[] = LEAD_STATUSES.map((status) => ({
+  status,
+  rank: LEAD_STATUS_ROLE[status].funnelRank,
+}))
+  .filter((entry): entry is { status: LeadStatus; rank: number } => entry.rank !== null)
+  .sort((a, b) => a.rank - b.rank)
+  .map((entry) => entry.status);
 
 export function isTerminalLeadStatus(status: LeadStatus): boolean {
-  return status === 'CONVERTED' || status === 'LOST';
+  return LEAD_STATUS_ROLE[status].terminal;
 }

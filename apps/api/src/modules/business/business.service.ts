@@ -379,6 +379,7 @@ export class BusinessService {
         offerId: schema.slots.offerId,
         offerTitle: schema.offers.title,
         venueName: schema.venues.name,
+        venueTimeZone: schema.venues.timeZone,
         startAt: schema.slots.startAt,
         endAt: schema.slots.endAt,
         capacity: schema.slots.capacity,
@@ -454,6 +455,7 @@ export class BusinessService {
         userId: schema.reservations.userId,
         venueId: schema.reservations.venueId,
         venueName: schema.venues.name,
+        venueTimeZone: schema.venues.timeZone,
       })
       .from(schema.reservations)
       .innerJoin(schema.offers, eq(schema.offers.id, schema.reservations.offerId))
@@ -483,6 +485,7 @@ export class BusinessService {
         status: row.status,
         venueId: row.venueId,
         venueName: row.venueName,
+        venueTimeZone: row.venueTimeZone,
         attendeeFirstName: row.firstName ?? 'Invité',
         isFirstVisit: firstVisits.has(`${row.userId}:${row.venueId}`),
         offerTitle: row.offerTitle,

@@ -5,6 +5,35 @@ import { SUPPORTED_LOCALES } from '../enums.js';
 export const uuidSchema = z.uuid();
 export const isoDateTimeSchema = z.iso.datetime();
 
+/**
+ * Une heure murale du jour : `HH:mm`, de `00:00` à `23:59`.
+ *
+ * Règle métier, en une phrase : **un horaire est une heure du jour, jamais un
+ * nombre d'heures.**
+ *
+ * Le format seul (`/^\d{2}:\d{2}$/`) ne suffisait pas et le défaut était
+ * silencieux : `startTime: '29:59'` traversait le contrat, puis le service — qui
+ * ne vérifiait que `Number.isInteger(29)` — puis `Date.UTC(..., 29, 59)`, qui
+ * *normalise* 29 h en 05:59 le lendemain. Résultat mesuré : un `POST
+ * /v1/schedules` à `29:59` rendait `201` et sept créneaux au mauvais jour, sans
+ * une seule erreur. Un horaire hors bornes doit être refusé au premier mètre,
+ * avec le nom du champ, pas absorbé par l'arithmétique du calendrier.
+ *
+ * `24:00` est délibérément refusé, y compris comme heure de fermeture : minuit
+ * s'écrit `00:00` et une salle ouverte jusqu'à 2 h ferme à `02:00`. Vérifié :
+ * aucune donnée du dépôt n'utilise `24:00`.
+ *
+ * La contrainte SQL `schedules_start_time_format` est plus stricte que l'ancien
+ * contrat (`^[0-2][0-9]:[0-5][0-9]$`) mais accepte encore `29:59` : elle doit
+ * suivre ce schéma, faute de quoi les deux se contredisent — et une valeur que
+ * le contrat accepte alors que la base la refuse rend un 500 là où le gérant
+ * attend un 400 nommant le champ.
+ */
+export const TIME_OF_DAY_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+export const timeOfDaySchema = z
+  .string()
+  .regex(TIME_OF_DAY_PATTERN, 'Heure invalide : attendu HH:mm entre 00:00 et 23:59.');
+
 export const localeSchema = z.enum(SUPPORTED_LOCALES);
 export const currencySchema = z.enum(SUPPORTED_CURRENCIES);
 

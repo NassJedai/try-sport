@@ -1,3 +1,4 @@
+import { RESERVATION_STATUSES } from './enums.js';
 import type { ReservationStatus } from './enums.js';
 
 /**
@@ -123,54 +124,97 @@ const TRANSITIONS: Record<ReservationStatus, readonly Transition[]> = {
   EXPIRED: [],
 };
 
-/** States from which nothing further can happen without an admin correction. */
-export const TERMINAL_RESERVATION_STATUSES: readonly ReservationStatus[] = [
-  'REFUNDED',
-  'EXPIRED',
-];
+/**
+ * Ce qu'un statut *entraîne* — par opposition à ce qu'il autorise.
+ *
+ * `TRANSITIONS` est exhaustive et le compilateur l'exige : ajouter un statut à
+ * `RESERVATION_STATUSES` sans lui donner de ligne de transitions ne compile pas.
+ * Mais cette garde s'arrêtait là, et c'était la partie la moins chère. Les
+ * conséquences — occuper une place, consommer l'essai, rester actionnable —
+ * vivaient dans trois tableaux littéraux : un statut ajouté n'y figurait pas et
+ * ne retenait donc **aucune place** et ne consommait **aucun essai**, en
+ * silence. Or ces deux réponses sont l'argent et l'essai, c'est-à-dire les deux
+ * choses que la plateforme vend.
+ *
+ * `Record<ReservationStatus, ReservationStatusEffects>` : trois questions
+ * auxquelles il faut répondre pour tout nouveau statut, sans quoi rien ne
+ * compile. Le défaut n'existe plus.
+ *
+ * `isTerminal` est absent de la table exprès : il se **déduit** de
+ * `TRANSITIONS` — un statut est terminal quand plus aucune transition n'en part.
+ * Le déclarer permettrait de le contredire.
+ */
+interface ReservationStatusEffects {
+  /** La réservation occupe encore une place dans le créneau. */
+  readonly holdsCapacity: boolean;
+  /**
+   * La réservation compte contre l'allocation d'essai de l'utilisateur.
+   *
+   * Les réservations en cours comptent, sinon un utilisateur tiendrait dix
+   * « premières séances » simultanées dans le même lieu. `NO_SHOW` compte parce
+   * que la salle a bloqué une place réelle et l'a perdue. Annulations,
+   * expirations et remboursements ne comptent pas : l'expérience n'a pas été
+   * consommée, et punir l'utilisateur rendrait l'annulation anxiogène.
+   */
+  readonly consumesTrial: boolean;
+  /** L'utilisateur peut encore agir dessus depuis l'app (annuler, montrer le QR). */
+  readonly isLive: boolean;
+}
 
-/** The booking still occupies capacity in the slot. */
-export const CAPACITY_HOLDING_STATUSES: readonly ReservationStatus[] = [
-  'PENDING',
-  'PAYMENT_PENDING',
-  'CONFIRMED',
-  'CHECKED_IN',
-  'COMPLETED',
-  'NO_SHOW',
-];
+const RESERVATION_STATUS_EFFECTS: Record<ReservationStatus, ReservationStatusEffects> = {
+  PENDING: { holdsCapacity: true, consumesTrial: true, isLive: true },
+  PAYMENT_PENDING: { holdsCapacity: true, consumesTrial: true, isLive: true },
+  CONFIRMED: { holdsCapacity: true, consumesTrial: true, isLive: true },
+  CHECKED_IN: { holdsCapacity: true, consumesTrial: true, isLive: false },
+  COMPLETED: { holdsCapacity: true, consumesTrial: true, isLive: false },
+  CANCELLED_USER: { holdsCapacity: false, consumesTrial: false, isLive: false },
+  CANCELLED_BUSINESS: { holdsCapacity: false, consumesTrial: false, isLive: false },
+  NO_SHOW: { holdsCapacity: true, consumesTrial: true, isLive: false },
+  REFUNDED: { holdsCapacity: false, consumesTrial: false, isLive: false },
+  EXPIRED: { holdsCapacity: false, consumesTrial: false, isLive: false },
+};
+
+function statusesWhere(
+  effect: (effects: ReservationStatusEffects) => boolean,
+): readonly ReservationStatus[] {
+  return RESERVATION_STATUSES.filter((status) => effect(RESERVATION_STATUS_EFFECTS[status]));
+}
 
 /**
- * Statuses that count against a user's trial allowance.
+ * States from which nothing further can happen without an admin correction.
  *
- * In-flight bookings count so a user cannot hold ten simultaneous "first sessions"
- * at the same venue. NO_SHOW counts because the venue reserved a real spot and
- * lost it. Cancellations, expiries and refunds do not count — the user never
- * consumed the experience, and punishing them would make cancelling feel unsafe.
+ * Déduit de `TRANSITIONS`, jamais déclaré : « terminal » veut dire « aucune
+ * transition n'en part », et une liste écrite à la main pouvait affirmer le
+ * contraire de la table.
  */
-export const TRIAL_CONSUMING_STATUSES: readonly ReservationStatus[] = [
-  'PENDING',
-  'PAYMENT_PENDING',
-  'CONFIRMED',
-  'CHECKED_IN',
-  'COMPLETED',
-  'NO_SHOW',
-];
+export const TERMINAL_RESERVATION_STATUSES: readonly ReservationStatus[] =
+  RESERVATION_STATUSES.filter((status) => TRANSITIONS[status].length === 0);
+
+/** The booking still occupies capacity in the slot. */
+export const CAPACITY_HOLDING_STATUSES: readonly ReservationStatus[] = statusesWhere(
+  (effects) => effects.holdsCapacity,
+);
+
+/** Statuses that count against a user's trial allowance. */
+export const TRIAL_CONSUMING_STATUSES: readonly ReservationStatus[] = statusesWhere(
+  (effects) => effects.consumesTrial,
+);
 
 export function isTerminalReservationStatus(status: ReservationStatus): boolean {
-  return TERMINAL_RESERVATION_STATUSES.includes(status);
+  return TRANSITIONS[status].length === 0;
 }
 
 export function holdsCapacity(status: ReservationStatus): boolean {
-  return CAPACITY_HOLDING_STATUSES.includes(status);
+  return RESERVATION_STATUS_EFFECTS[status].holdsCapacity;
 }
 
 export function consumesTrial(status: ReservationStatus): boolean {
-  return TRIAL_CONSUMING_STATUSES.includes(status);
+  return RESERVATION_STATUS_EFFECTS[status].consumesTrial;
 }
 
 /** A booking the user can still act on from the app (cancel, show QR). */
 export function isLiveReservationStatus(status: ReservationStatus): boolean {
-  return status === 'PENDING' || status === 'PAYMENT_PENDING' || status === 'CONFIRMED';
+  return RESERVATION_STATUS_EFFECTS[status].isLive;
 }
 
 export function allowedTransitionsFrom(status: ReservationStatus): readonly Transition[] {

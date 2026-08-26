@@ -66,7 +66,7 @@ export class DiscoveryService {
         sort: 'RELEVANCE',
       }),
       this.repository.listCategoriesWithCounts(city.id),
-      viewerId ? this.repository.findUserInterestCategoryIds(viewerId) : Promise.resolve([]),
+      viewerId ? this.repository.findUserInterestCategorySlugs(viewerId) : Promise.resolve([]),
     ]);
 
     const interestSet = new Set(interests);
@@ -190,7 +190,7 @@ export class DiscoveryService {
     // Personalised re-ranking applies only to RELEVANCE; an explicit sort is a
     // user instruction and must be honoured exactly.
     if (query.sort === 'RELEVANCE' && viewerId) {
-      const interests = new Set(await this.repository.findUserInterestCategoryIds(viewerId));
+      const interests = new Set(await this.repository.findUserInterestCategorySlugs(viewerId));
       const ranked = this.rank(pageRows, {
         now,
         radiusMeters: query.radiusMeters ?? 10_000,

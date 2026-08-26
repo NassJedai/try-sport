@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { evaluateTrialEligibility } from './trial-eligibility.js';
+import { EXPERIENCE_TYPES, TRIAL_RULES } from './enums.js';
+import {
+  carriesDiscoveryPrice,
+  DISCOVERY_PRICED_EXPERIENCE_TYPES,
+  evaluateTrialEligibility,
+  offerTrialConfigurationIsCoherent,
+} from './trial-eligibility.js';
 import type { TrialHistoryEntry } from './trial-eligibility.js';
 
 const BUSINESS = 'business-1';
@@ -103,5 +109,65 @@ describe('trial eligibility', () => {
     );
     expect(result.eligible).toBe(false);
     if (!result.eligible) expect(result.conflictingEntry).toEqual(consumed);
+  });
+});
+
+/**
+ * Le tarif de découverte et l'allocation d'essai vont ensemble.
+ *
+ * Cette table est la garde d'exhaustivité de `EXPERIENCE_TYPES` : ajouter un
+ * type d'expérience sans dire s'il porte un tarif de découverte ne compile pas.
+ * Ces assertions vérifient l'autre moitié — que la table dit la bonne chose.
+ */
+describe('tarif découverte et portée d’essai', () => {
+  it('classe chaque type d’expérience, sans trou', () => {
+    for (const experienceType of EXPERIENCE_TYPES) {
+      expect(typeof carriesDiscoveryPrice(experienceType)).toBe('boolean');
+    }
+  });
+
+  it('reconnaît les deux formes de séance découverte', () => {
+    // Cette liste comptait `DISCOVERY_PACK` jusqu'à l'arbitrage du 2026-08-26 :
+    // ce test décrivait donc la règle inverse, et la règle a changé — ce n'est
+    // pas un test affaibli pour faire passer du code.
+    expect(DISCOVERY_PRICED_EXPERIENCE_TYPES).toEqual(['FREE_TRIAL', 'DISCOVERY_PRICE']);
+  });
+
+  it('ne compte pas comme découverte ce que la salle vend elle-même', () => {
+    for (const experienceType of ['INITIATION', 'DAY_PASS', 'BEGINNER_CLASS', 'PREMIUM_EXPERIENCE'] as const) {
+      expect(carriesDiscoveryPrice(experienceType)).toBe(false);
+    }
+  });
+
+  it('laisse le pack découverte hors de l’allocation d’essai', () => {
+    // Le pack est le produit qui *suit* l'essai, pas une seconde forme d'essai.
+    // Le faire consommer l'allocation le rendait inachetable par le client qui
+    // venait justement de faire son essai gratuit dans ce lieu.
+    expect(carriesDiscoveryPrice('DISCOVERY_PACK')).toBe(false);
+    expect(DISCOVERY_PRICED_EXPERIENCE_TYPES).not.toContain('DISCOVERY_PACK');
+  });
+
+  it('interdit « aucune restriction » à une offre découverte', () => {
+    for (const experienceType of DISCOVERY_PRICED_EXPERIENCE_TYPES) {
+      expect(
+        offerTrialConfigurationIsCoherent({ experienceType, trialRule: 'NO_RESTRICTION' }),
+      ).toBe(false);
+    }
+  });
+
+  it('accepte n’importe quelle portée réelle sur une offre découverte', () => {
+    for (const experienceType of DISCOVERY_PRICED_EXPERIENCE_TYPES) {
+      for (const trialRule of TRIAL_RULES.filter((rule) => rule !== 'NO_RESTRICTION')) {
+        expect(offerTrialConfigurationIsCoherent({ experienceType, trialRule })).toBe(true);
+      }
+    }
+  });
+
+  it('laisse une offre au tarif normal libre de toute portée', () => {
+    for (const trialRule of TRIAL_RULES) {
+      expect(offerTrialConfigurationIsCoherent({ experienceType: 'DAY_PASS', trialRule })).toBe(
+        true,
+      );
+    }
   });
 });

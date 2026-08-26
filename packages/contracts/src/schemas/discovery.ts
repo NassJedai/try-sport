@@ -33,6 +33,12 @@ export const offerCardSchema = z.object({
     id: uuidSchema,
     name: z.string(),
     districtName: z.string().nullable(),
+    /**
+     * IANA. `nextSlotAt` est un instant UTC : sans le fuseau du lieu, la carte
+     * ne peut pas écrire « Prochain créneau · 19:00 » juste. L'app mobile
+     * codait `Europe/Brussels` en dur faute de l'avoir dans le contrat.
+     */
+    timeZone: z.string(),
     coordinates: coordinatesSchema,
   }),
   /** Null when the user has not shared a location. */

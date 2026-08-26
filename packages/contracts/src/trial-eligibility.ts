@@ -1,11 +1,104 @@
 import { consumesTrial } from './reservation-state-machine.js';
-import type { ReservationStatus, TrialRule } from './enums.js';
+import { EXPERIENCE_TYPES } from './enums.js';
+import type { ExperienceType, ReservationStatus, TrialRule } from './enums.js';
 
 /**
  * Trial eligibility is the rule that makes TRY a discovery marketplace rather
  * than a discount site: a user gets the introductory price once, then converts
  * to the venue's normal pricing. It is evaluated on the server only.
  */
+
+/* ---------------------------------------------------------------------------
+ * Cohérence d'une offre : tarif découverte ⇒ allocation obligatoire
+ * ------------------------------------------------------------------------ */
+
+/**
+ * Cette offre vend-elle un tarif de découverte ?
+ *
+ * Règle métier, en une phrase : **une offre dont le prix est un tarif de
+ * découverte doit obligatoirement consommer une allocation d'essai dans une
+ * portée ; seule une offre au tarif normal peut être en `NO_RESTRICTION`.**
+ *
+ * Sans cette contrainte, `NO_RESTRICTION` sur un `FREE_TRIAL` rend l'essai
+ * gratuit répétable à l'infini : ce n'est plus une marketplace de découverte,
+ * c'est un site de bons plans. Le gérant choisit la *portée* — établissement,
+ * lieu ou offre —, jamais le *nombre* : une seule séance découverte est une
+ * règle de plateforme.
+ *
+ * `Record<ExperienceType, boolean>` et non une liste : la table est exhaustive
+ * par construction. Ajouter un type d'expérience à `EXPERIENCE_TYPES` sans dire
+ * s'il porte un tarif de découverte casse la compilation, au lieu de répondre
+ * « non » en silence — et « non » est justement la réponse qui laisse fuir
+ * l'argent.
+ *
+ * **Ce que cette table protège, et ce qu'elle ne protège pas.** L'allocation
+ * d'essai protège *la séance découverte offerte par la plateforme* — celle qui
+ * fait de TRIALYA une marketplace de découverte. Elle ne prétend pas encadrer
+ * tout tarif attractif : ce qu'une salle décide de vendre au-delà de l'essai
+ * relève de son commerce, pas d'une règle de plateforme.
+ */
+const CARRIES_DISCOVERY_PRICE: Record<ExperienceType, boolean> = {
+  FREE_TRIAL: true,
+  DISCOVERY_PRICE: true,
+  /**
+   * **Non** — arbitré le 2026-08-26, après avoir été classé `true` à tort.
+   *
+   * Le pack est le produit qui **suit** l'essai, pas une seconde forme d'essai.
+   * `CLAUDE.md` en fait la réponse sanctionnée à « je veux offrir plusieurs
+   * séances découvertes » : « une offre distincte à tarification propre, jamais
+   * en assouplissant l'allocation d'essai ». Le classer comme tarif de
+   * découverte le ferait consommer l'allocation qu'il est censé contourner
+   * proprement.
+   *
+   * La conséquence était décisive : un pack consommant l'allocation devenait
+   * inachetable par le client ayant déjà fait son essai gratuit dans le même
+   * lieu — c'est-à-dire par le client le plus intéressé, et c'est exactement le
+   * chemin de conversion pour lequel le pack existe. Une règle anti-abus qui
+   * empêche la vente se trompe de cible.
+   *
+   * **Déclencheur d'un réexamen** : le jour où un pack serait vendu *au-dessous*
+   * du tarif découverte de la même salle. Le pack cesserait alors d'être le
+   * produit d'après pour redevenir une porte d'entrée moins chère que la porte
+   * d'entrée — et cette table devrait être rouverte.
+   */
+  DISCOVERY_PACK: false,
+  /** Un cours d'initiation est vendu à son prix : il s'adresse aux débutants, pas aux nouveaux venus. */
+  INITIATION: false,
+  DAY_PASS: false,
+  BEGINNER_CLASS: false,
+  PREMIUM_EXPERIENCE: false,
+};
+
+export function carriesDiscoveryPrice(experienceType: ExperienceType): boolean {
+  return CARRIES_DISCOVERY_PRICE[experienceType];
+}
+
+/** Prêt pour une interface : les types qui exigent une portée d'essai. */
+export const DISCOVERY_PRICED_EXPERIENCE_TYPES: readonly ExperienceType[] =
+  EXPERIENCE_TYPES.filter(carriesDiscoveryPrice);
+
+export interface OfferTrialConfiguration {
+  readonly experienceType: ExperienceType;
+  readonly trialRule: TrialRule;
+}
+
+/**
+ * « Cette offre a-t-elle une configuration d'essai cohérente ? »
+ *
+ * Vérifiable dès la création, où les deux champs sont présents — d'où le
+ * `.check()` de `createOfferSchema`. Sur une **mise à jour partielle**, elle ne
+ * l'est pas : le DTO peut ne porter que `trialRule`, et le type d'expérience
+ * vit alors dans la ligne existante. Le service doit donc rappeler ce prédicat
+ * sur la fusion `{ ...existing, ...dto }` avant d'écrire — c'est la seule
+ * couche qui a les deux valeurs sous la main.
+ */
+export function offerTrialConfigurationIsCoherent(offer: OfferTrialConfiguration): boolean {
+  return !(carriesDiscoveryPrice(offer.experienceType) && offer.trialRule === 'NO_RESTRICTION');
+}
+
+/** Le message rendu au gérant, en français, quand la configuration est incohérente. */
+export const INCOHERENT_TRIAL_RULE_MESSAGE =
+  'Une offre découverte doit limiter l’essai à une portée (établissement, lieu ou offre) : « aucune restriction » est réservé aux offres au tarif normal.';
 
 export interface TrialHistoryEntry {
   readonly businessId: string;

@@ -38,6 +38,7 @@ export class OfferCardMapper {
         id: row.venue_id,
         name: row.venue_name,
         districtName: row.district_name,
+        timeZone: row.venue_time_zone,
         coordinates: { latitude: row.venue_latitude, longitude: row.venue_longitude },
       },
       distanceMeters: row.distance_meters === null ? null : Math.round(row.distance_meters),

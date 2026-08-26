@@ -1,5 +1,9 @@
 import { z } from 'zod';
 import { CANCELLATION_POLICIES } from '../cancellation-policy.js';
+import {
+  INCOHERENT_TRIAL_RULE_MESSAGE,
+  offerTrialConfigurationIsCoherent,
+} from '../trial-eligibility.js';
 import { EXPERIENCE_TYPES, OFFER_STATUSES, SKILL_LEVELS, SUPPORTED_LOCALES, TRIAL_RULES } from '../enums.js';
 import {
   coordinatesSchema,
@@ -8,6 +12,7 @@ import {
   isoDateTimeSchema,
   moneySchema,
   partialUpdateOf,
+  timeOfDaySchema,
   uuidSchema,
 } from './common.js';
 import { offerBadgeSchema } from './discovery.js';
@@ -27,12 +32,19 @@ export const venueSummarySchema = z.object({
 });
 export type VenueSummaryDto = z.infer<typeof venueSummarySchema>;
 
+/**
+ * Les horaires d'ouverture, bornés comme des heures du jour.
+ *
+ * Même défaut que `startTime` et même correctif : `/^\d{2}:\d{2}$/` acceptait
+ * `29:59` et `99:99`. Une salle qui « ouvre à 99:99 » n'ouvre jamais, et rien
+ * dans la chaîne ne le disait.
+ */
 export const openingHoursSchema = z.array(
   z.object({
     /** 0 = Sunday, matching JS getDay(). */
     dayOfWeek: z.int().min(0).max(6),
-    opensAt: z.string().regex(/^\d{2}:\d{2}$/),
-    closesAt: z.string().regex(/^\d{2}:\d{2}$/),
+    opensAt: timeOfDaySchema,
+    closesAt: timeOfDaySchema,
   }),
 );
 
@@ -149,7 +161,17 @@ export type AvailabilityQueryDto = z.infer<typeof availabilityQuerySchema>;
  * Business-side offer management
  * ------------------------------------------------------------------------ */
 
-export const createOfferSchema = z.object({
+/**
+ * Les champs écrivables d'une offre, avant toute contrainte croisée.
+ *
+ * Séparé de `createOfferSchema` pour une raison mesurée : en Zod 4,
+ * `.omit()` **jette** sur un schéma objet portant un `refine`
+ * (« .omit() cannot be used on object schemas containing refinements »).
+ * `updateOfferSchema` dérive donc de cette base nue, et la contrainte croisée
+ * ne s'applique qu'à la création — où les deux champs qu'elle compare sont
+ * garantis présents.
+ */
+const offerWritableFieldsSchema = z.object({
   venueId: uuidSchema,
   categoryId: uuidSchema,
   title: z.string().trim().min(3).max(120),
@@ -172,6 +194,24 @@ export const createOfferSchema = z.object({
   cancellationPolicy: z.enum(CANCELLATION_POLICIES).default('STANDARD'),
   trialRule: z.enum(TRIAL_RULES).default('ONE_TRIAL_PER_VENUE'),
 });
+
+/**
+ * La création d'une offre, contrainte comprise.
+ *
+ * Une offre qui porte un tarif de découverte doit consommer une allocation
+ * d'essai dans une portée : `NO_RESTRICTION` sur un `FREE_TRIAL` rendrait
+ * l'essai gratuit répétable à l'infini. La règle vit dans
+ * `offerTrialConfigurationIsCoherent` et non ici, parce que le service doit la
+ * rappeler sur les mises à jour partielles, où le type d'expérience vient de la
+ * ligne existante et non du corps de la requête.
+ *
+ * `path: ['trialRule']` : le refus arrive au gérant sous le nom du champ à
+ * corriger, pas comme une erreur de formulaire anonyme.
+ */
+export const createOfferSchema = offerWritableFieldsSchema.refine(
+  offerTrialConfigurationIsCoherent,
+  { path: ['trialRule'], message: INCOHERENT_TRIAL_RULE_MESSAGE },
+);
 export type CreateOfferDto = z.infer<typeof createOfferSchema>;
 
 /**
@@ -198,5 +238,7 @@ export type CreateOfferDto = z.infer<typeof createOfferSchema>;
  * Ce que ce schéma ne dit pas : *quel* champ est modifiable *dans quel statut*.
  * C'est `editable-fields.ts` — et le prix y est un champ modéré.
  */
-export const updateOfferSchema = partialUpdateOf(createOfferSchema.omit({ venueId: true }));
+export const updateOfferSchema = partialUpdateOf(
+  offerWritableFieldsSchema.omit({ venueId: true }),
+);
 export type UpdateOfferDto = z.infer<typeof updateOfferSchema>;
