@@ -1,10 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, inArray, lt, or, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, lt, or, isNull } from 'drizzle-orm';
 import { addMinutes, zonedDayKey, zonedTimeToUtc } from '@try/utils';
 import type { Clock } from '@try/utils';
 import { schema } from '@try/database';
 import type { Database, Transaction } from '@try/database';
 import type { Logger } from '@try/logger';
+import { assertTransition, isLiveReservationStatus } from '@try/contracts';
 import type { RecurringScheduleDto } from '@try/contracts';
 import { DATABASE } from '../../common/database.module.js';
 import { CLOCK } from '../../common/clock.js';
@@ -277,23 +278,52 @@ export class ScheduleService {
         .set({ status: 'CANCELLED', cancelledReason: input.reason, updatedAt: now })
         .where(eq(schema.slots.id, input.slotId));
 
-      // The venue cancelled, so this is never the user's fault: their trial
-      // allowance is returned and any payment is refundable.
-      const affected = await tx
-        .update(schema.reservations)
-        .set({
-          status: 'CANCELLED_BUSINESS',
-          cancelledAt: now,
-          cancellationReason: input.reason,
-          updatedAt: now,
-        })
-        .where(
-          and(
-            eq(schema.reservations.slotId, input.slotId),
-            sql`${schema.reservations.status} IN ('PENDING', 'PAYMENT_PENDING', 'CONFIRMED')`,
-          ),
-        )
-        .returning({ id: schema.reservations.id });
+      /**
+       * The venue cancelled, so this is never the user's fault: their trial
+       * allowance is returned and any payment is refundable.
+       *
+       * The old `UPDATE ... WHERE status IN (...)` wrote CANCELLED_BUSINESS
+       * unconditionally over PENDING too, which `assertTransition` has never
+       * allowed for this actor (only PAYMENT_PENDING and CONFIRMED are —
+       * see reservation-state-machine.ts). Nothing writes PENDING today, so
+       * this had no live consequence, but it meant a forbidden transition
+       * *could* be represented in this one path — the opposite of the
+       * guarantee the state machine exists to give. Reading each candidate's
+       * current status and asserting it explicitly, row by row, closes that:
+       * a future regression that leaves a reservation in PENDING here throws
+       * instead of silently cancelling it.
+       */
+      const liveReservations = await tx
+        .select({ id: schema.reservations.id, status: schema.reservations.status })
+        .from(schema.reservations)
+        .where(eq(schema.reservations.slotId, input.slotId))
+        .for('update');
+
+      const candidates = liveReservations.filter((reservation) =>
+        isLiveReservationStatus(reservation.status),
+      );
+      for (const reservation of candidates) {
+        assertTransition(reservation.status, 'CANCELLED_BUSINESS', 'BUSINESS');
+      }
+
+      const affected =
+        candidates.length > 0
+          ? await tx
+              .update(schema.reservations)
+              .set({
+                status: 'CANCELLED_BUSINESS',
+                cancelledAt: now,
+                cancellationReason: input.reason,
+                updatedAt: now,
+              })
+              .where(
+                inArray(
+                  schema.reservations.id,
+                  candidates.map((reservation) => reservation.id),
+                ),
+              )
+              .returning({ id: schema.reservations.id })
+          : [];
 
       if (affected.length > 0) {
         await tx

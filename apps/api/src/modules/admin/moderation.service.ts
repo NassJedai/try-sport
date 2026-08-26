@@ -338,6 +338,28 @@ export class ModerationService {
   async overview(actor: AuthenticatedUser): Promise<Record<string, number>> {
     this.assertAdmin(actor);
 
+    /**
+     * `gmvMinor`/`platformRevenueMinor` are deliberately NOT cast to `::int`.
+     *
+     * `SUM(integer)` is `bigint` in Postgres regardless of how small the
+     * total turns out to be — casting that to `::int` looked harmless (every
+     * other aggregate here is a `COUNT(*)::int`) but silently caps the whole
+     * *endpoint* at 2,147,483,647 minor units (€21,474,836.47 cumulative
+     * GMV): past that, Postgres raises `integer out of range` on the CAST,
+     * and the entire query — not just this one field — errors out. `GET
+     * /v1/admin/overview` returned a 500 with no other symptom (fixed
+     * 2026-08-26).
+     *
+     * Left as `bigint`, postgres.js hands the value back as a *string* (no
+     * custom type parser is registered for OID 20 — see
+     * packages/database/src/client.ts — precisely so a huge value is never
+     * silently truncated in transit). `Number(...)` below is exact up to
+     * `Number.MAX_SAFE_INTEGER` = 9,007,199,254,740,991 minor units — about
+     * €90 trillion — several orders of magnitude past any GMV this platform
+     * will plausibly reach; unlike the `::int` cast it replaces, precision
+     * here can only degrade at a scale where an admin dashboard figure is
+     * the least of anyone's problems.
+     */
     const [row] = (await this.db.execute(sql`
       SELECT
         (SELECT COUNT(*) FROM users WHERE deleted_at IS NULL)::int AS "users",
@@ -356,12 +378,21 @@ export class ModerationService {
         -- inclut PARTIALLY_REFUNDED et REFUNDED (le brut a bien ete encaisse),
         -- refunded_amount/refunded_platform_fee_amount portent la part rendue.
         (SELECT COALESCE(SUM(amount - refunded_amount), 0) FROM payments
-          WHERE status IN (${sql.raw(CAPTURED_PAYMENT_STATUSES_SQL)}))::int AS "gmvMinor",
+          WHERE status IN (${sql.raw(CAPTURED_PAYMENT_STATUSES_SQL)})) AS "gmvMinor",
         (SELECT COALESCE(SUM(platform_fee_amount - refunded_platform_fee_amount), 0) FROM payments
-          WHERE status IN (${sql.raw(CAPTURED_PAYMENT_STATUSES_SQL)}))::int AS "platformRevenueMinor",
+          WHERE status IN (${sql.raw(CAPTURED_PAYMENT_STATUSES_SQL)})) AS "platformRevenueMinor",
         (SELECT COUNT(*) FROM leads WHERE status = 'CONVERTED')::int AS "conversions"
-    `)) as unknown as Record<string, number>[];
+    `)) as unknown as (Record<string, number> & {
+      gmvMinor: string;
+      platformRevenueMinor: string;
+    })[];
 
-    return row ?? {};
+    if (!row) return {};
+
+    return {
+      ...row,
+      gmvMinor: Number(row.gmvMinor),
+      platformRevenueMinor: Number(row.platformRevenueMinor),
+    };
   }
 }

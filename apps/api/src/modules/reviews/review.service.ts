@@ -96,7 +96,7 @@ export class ReviewService {
        * person must not be dragged back to INTERESTED by a late review.
        */
       const [lead] = await tx
-        .select({ id: schema.leads.id, status: schema.leads.status })
+        .select({ id: schema.leads.id, status: schema.leads.status, lostAt: schema.leads.lostAt })
         .from(schema.leads)
         .where(eq(schema.leads.reservationId, reservation.id))
         .limit(1);
@@ -111,7 +111,13 @@ export class ReviewService {
             rating: input.dto.rating,
             continuation: input.dto.continuation ?? null,
             status: nextStatus,
-            lostAt: nextStatus === 'LOST' && lead.status !== 'LOST' ? now : null,
+            // `now` only on the transition INTO LOST; otherwise keep whatever
+            // was already there (`null` if never lost, the original loss date
+            // if already LOST — see business.service.ts:597 for the same
+            // rule). The unconditional `: null` here used to erase a prospect's
+            // loss date on every later review, because a lead that stays LOST
+            // still recomputes nextStatus === 'LOST' each time (fixed 2026-08-26).
+            lostAt: nextStatus === 'LOST' ? (lead.status === 'LOST' ? lead.lostAt : now) : lead.lostAt,
             /**
              * Consent is recorded as a timestamp, not a boolean: GDPR requires
              * knowing *when* it was given. The venue only sees an email address

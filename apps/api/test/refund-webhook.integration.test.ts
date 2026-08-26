@@ -171,6 +171,7 @@ describeIfDatabase('registre de remboursements', () => {
       offerId: slot.offerId,
       reservationId: reservation!.id,
       reservedAt: now,
+      trialRule: reservation!.trialRule,
       status: reservationStatus,
     });
 

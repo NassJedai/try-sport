@@ -16,8 +16,23 @@ import type { ProviderRefund } from './payment-provider.js';
 import { confirmReservationOnCapture, type ConfirmedReservationEffect } from './confirm-capture.js';
 
 const PROVIDER = 'STRIPE';
-/** Statuts de reservation ou un remboursement total sans annulation applicative est anormal. */
-const LIVE_RESERVATION_STATUSES = new Set(['CONFIRMED', 'CHECKED_IN']);
+/**
+ * Statuts ou la seance TIENT TOUJOURS : elle est confirmee, ou elle a eu lieu.
+ * Un remboursement total sans annulation applicative y est donc anormal.
+ *
+ * DELIBEREMENT PAS `isLiveReservationStatus` de @try/contracts, malgre la
+ * parente des noms. Le contrat repond « l'utilisateur peut-il encore agir
+ * dessus depuis l'app ? » — donc PENDING, PAYMENT_PENDING, CONFIRMED. Ici on
+ * demande « la seance tient-elle toujours ? » — donc CONFIRMED et CHECKED_IN.
+ * Les deux ensembles se croisent sans se recouvrir, et prendre celui du
+ * contrat ferait cesser l'alerte sur CHECKED_IN, c'est-a-dire sur le cas le
+ * plus anormal : la personne est venue et a ete integralement remboursee.
+ *
+ * Rapprocher les deux demanderait un predicat nomme pour CETTE question dans
+ * les contrats. Tant qu'il n'existe pas, ce Set reste local et son nom dit
+ * lequel des deux il est.
+ */
+const STANDING_RESERVATION_STATUSES = new Set(['CONFIRMED', 'CHECKED_IN']);
 
 export interface RefundApplyInput {
   /** Resolution directe quand l'appelant tient deja la ligne. */
@@ -587,7 +602,8 @@ export class RefundLedgerService {
         .where(eq(schema.reservations.id, updatedPayment.reservationId))
         .limit(1);
 
-      const reservationStillLive = !!reservation && LIVE_RESERVATION_STATUSES.has(reservation.status);
+      const reservationStillLive =
+        !!reservation && STANDING_RESERVATION_STATUSES.has(reservation.status);
       if (reservationStillLive) {
         this.logger.warn(
           { reservationId: updatedPayment.reservationId, paymentId: updatedPayment.id },
