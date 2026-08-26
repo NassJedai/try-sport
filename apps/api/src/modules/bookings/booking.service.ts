@@ -66,12 +66,22 @@ export class BookingService {
    *
    *   2. Trial eligibility: a rule that spans rows, so a read-then-write check is
    *      racy under READ COMMITTED. A transaction-scoped advisory lock on
-   *      (user, venue) serialises just those requests, which is far cheaper than
-   *      pushing the whole path to SERIALIZABLE.
+   *      (user, business) serialises just those requests, which is far cheaper
+   *      than pushing the whole path to SERIALIZABLE. Business, not venue: a
+   *      business's trial rule can be scoped as wide as "one trial across the
+   *      whole business" (`ONE_TRIAL_PER_BUSINESS`), which spans several
+   *      venues — a lock keyed on venue alone would let two simultaneous
+   *      bookings at two different venues of the same business both slip
+   *      through (this was a real bug, fixed 2026-08-26). Business is the
+   *      widest scope any trial rule can span, so it is always the correct
+   *      lock key regardless of which rule the offer actually uses.
    *
    * The duplicate-booking case is additionally enforced by a partial unique index,
    * so even a request that bypassed this service could not create two live
-   * bookings for one user and slot.
+   * bookings for one user and slot. Trial eligibility has the same backstop:
+   * `trial_history` carries three partial unique indexes, one per scope (see
+   * migration 0007), so a regression on the advisory lock above hits the
+   * database instead of silently overselling a discovery price.
    */
   async create(input: {
     userId: string;
@@ -95,8 +105,9 @@ export class BookingService {
         throw ApiException.conflict('SLOT_IN_PAST', { slotId: context.slot.id });
       }
 
-      // Serialise this user's bookings at this venue before reading their history.
-      await acquireTrialEligibilityLock(tx, input.userId, context.venue.id);
+      // Serialise this user's bookings at this business — not just this venue —
+      // before reading their history. See the class-level doc for why.
+      await acquireTrialEligibilityLock(tx, input.userId, context.business.id);
 
       await this.assertTrialEligible(tx, {
         userId: input.userId,
@@ -170,15 +181,48 @@ export class BookingService {
 
       // Trial history is written in the same transaction as the reservation, so
       // eligibility can never disagree with what was actually booked.
-      await tx.insert(schema.trialHistory).values({
-        userId: input.userId,
-        businessId: context.business.id,
-        venueId: context.venue.id,
-        offerId: context.offer.id,
-        reservationId,
-        reservedAt: now,
-        status: requiresPayment ? 'PAYMENT_PENDING' : 'CONFIRMED',
-      });
+      try {
+        await tx.insert(schema.trialHistory).values({
+          userId: input.userId,
+          businessId: context.business.id,
+          venueId: context.venue.id,
+          offerId: context.offer.id,
+          reservationId,
+          reservedAt: now,
+          status: requiresPayment ? 'PAYMENT_PENDING' : 'CONFIRMED',
+          trialRule: context.offer.trialRule,
+        });
+      } catch (error) {
+        // Storage-level backstop (migration 0007): should never fire given the
+        // advisory lock above, but a regression there must surface as the
+        // same domain error the pre-lock check would have thrown, not a raw
+        // 500 from an unhandled constraint violation.
+        if (isUniqueViolation(error, 'trial_history_business_scope_key')) {
+          throw new ApiException(
+            'TRIAL_NOT_ELIGIBLE',
+            TRIAL_INELIGIBILITY_MESSAGES.ALREADY_TRIED_THIS_BUSINESS,
+            undefined,
+            { reason: 'ALREADY_TRIED_THIS_BUSINESS' },
+          );
+        }
+        if (isUniqueViolation(error, 'trial_history_venue_scope_key')) {
+          throw new ApiException(
+            'TRIAL_NOT_ELIGIBLE',
+            TRIAL_INELIGIBILITY_MESSAGES.ALREADY_TRIED_THIS_VENUE,
+            undefined,
+            { reason: 'ALREADY_TRIED_THIS_VENUE' },
+          );
+        }
+        if (isUniqueViolation(error, 'trial_history_offer_scope_key')) {
+          throw new ApiException(
+            'TRIAL_NOT_ELIGIBLE',
+            TRIAL_INELIGIBILITY_MESSAGES.ALREADY_TRIED_THIS_OFFER,
+            undefined,
+            { reason: 'ALREADY_TRIED_THIS_OFFER' },
+          );
+        }
+        throw error;
+      }
 
       await tx
         .update(schema.offers)

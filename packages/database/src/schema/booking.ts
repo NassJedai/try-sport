@@ -167,6 +167,13 @@ export const trialHistory = pgTable(
     completedAt: timestampColumn('completed_at'),
     /** Mirrors the reservation status so eligibility is a single indexed read. */
     status: reservationStatusEnum('status').notNull(),
+    /**
+     * Snapshot of the rule applied when this trial was consumed — mirrors
+     * `reservations.trial_rule` for the same reason: an offer's scope may
+     * change later, but the constraint that guarded this specific row must
+     * keep referring to the scope that was actually in force.
+     */
+    trialRule: trialRuleEnum('trial_rule').notNull(),
 
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -177,6 +184,35 @@ export const trialHistory = pgTable(
     index('trial_history_user_venue_idx').on(table.userId, table.venueId),
     index('trial_history_user_business_idx').on(table.userId, table.businessId),
     index('trial_history_user_offer_idx').on(table.userId, table.offerId),
+
+    /**
+     * Storage-level backstop for the trial rule, on the same principle as the
+     * capacity CHECK constraint: the advisory lock in
+     * `packages/database/src/locking.ts` is the primary defence against a
+     * concurrent double-consumption, but a regression there (or a future
+     * write path that bypasses it) must hit the database, not pass silently.
+     *
+     * One partial unique index per scope, not one column-spanning index: the
+     * scope is chosen per offer, so a user who legitimately consumed a
+     * ONE_TRIAL_PER_VENUE trial at venue A and a ONE_TRIAL_PER_OFFER trial at
+     * venue B of the same business must not conflict with each other. Each
+     * index only ever applies to rows recorded under its own rule.
+     */
+    uniqueIndex('trial_history_business_scope_key')
+      .on(table.userId, table.businessId)
+      .where(
+        sql`trial_rule = 'ONE_TRIAL_PER_BUSINESS' AND status IN ('PENDING', 'PAYMENT_PENDING', 'CONFIRMED', 'CHECKED_IN', 'COMPLETED', 'NO_SHOW')`,
+      ),
+    uniqueIndex('trial_history_venue_scope_key')
+      .on(table.userId, table.venueId)
+      .where(
+        sql`trial_rule = 'ONE_TRIAL_PER_VENUE' AND status IN ('PENDING', 'PAYMENT_PENDING', 'CONFIRMED', 'CHECKED_IN', 'COMPLETED', 'NO_SHOW')`,
+      ),
+    uniqueIndex('trial_history_offer_scope_key')
+      .on(table.userId, table.offerId)
+      .where(
+        sql`trial_rule = 'ONE_TRIAL_PER_OFFER' AND status IN ('PENDING', 'PAYMENT_PENDING', 'CONFIRMED', 'CHECKED_IN', 'COMPLETED', 'NO_SHOW')`,
+      ),
   ],
 );
 

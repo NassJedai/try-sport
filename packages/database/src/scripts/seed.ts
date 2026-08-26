@@ -430,6 +430,7 @@ async function main(): Promise<void> {
     reservationId: demoReservation.id,
     reservedAt: now,
     status: 'CONFIRMED',
+    trialRule: demoOffer.trialRule,
   });
 
   console.log(
@@ -535,6 +536,15 @@ async function main(): Promise<void> {
     }
 
     // Trial history mirrors those completed reservations.
+    //
+    // onConflictDoNothing() (no target) absorbs violations of ANY unique
+    // constraint on the table, including the three partial scope-guard
+    // indexes added by migration 0007 — expected here: every offer is seeded
+    // with the same ONE_TRIAL_PER_VENUE rule (see OFFERS above), and the
+    // consumer-picking formula below can legitimately reuse the same user at
+    // the same venue across several offers/reviews. Those extra rows are
+    // silently skipped rather than mirrored, same as any other duplicate this
+    // insert already tolerated before this migration.
     const trialValues = insertedReservations.map((reservation) => ({
       userId: reservation.userId,
       businessId: reservation.businessId,
@@ -545,6 +555,7 @@ async function main(): Promise<void> {
       checkedInAt: reservation.checkedInAt,
       completedAt: reservation.completedAt,
       status: reservation.status,
+      trialRule: reservation.trialRule,
     }));
     for (let index = 0; index < trialValues.length; index += CHUNK) {
       await db
@@ -879,6 +890,7 @@ async function main(): Promise<void> {
       reservationId: reservation.id,
       reservedAt: reservation.createdAt,
       status: 'PAYMENT_PENDING',
+      trialRule: offerRow.trialRule,
     });
 
     const currency = offerRow.currency as CurrencyCode;
@@ -909,7 +921,12 @@ async function main(): Promise<void> {
   }
 
   if (abandonedTrialHistoryValues.length > 0) {
-    await db.insert(schema.trialHistory).values(abandonedTrialHistoryValues);
+    // onConflictDoNothing(): the consumer/venue picked here can coincide with
+    // one already given a consuming trial_history row above (same reasoning
+    // as the bulk insert a few lines up) — a scope-guard index violation here
+    // must be skipped, not crash the whole seed run over a handful of
+    // decorative abandoned-cart rows.
+    await db.insert(schema.trialHistory).values(abandonedTrialHistoryValues).onConflictDoNothing();
   }
 
   for (let index = 0; index < paymentValues.length; index += CHUNK) {

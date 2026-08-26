@@ -2,6 +2,7 @@ import { describe } from 'vitest';
 import { sql } from 'drizzle-orm';
 import { createDatabase, schema } from '@try/database';
 import type { Database } from '@try/database';
+import type { TrialRule } from '@try/contracts';
 
 /**
  * Harness for tests that need a real Postgres with PostGIS.
@@ -79,39 +80,66 @@ async function insertUniqueCountry(
   );
 }
 
-/** Minimal graph: country -> city -> business -> venue -> category -> offer -> slot. */
+/**
+ * Minimal graph: country -> city -> business -> venue -> category -> offer -> slot.
+ *
+ * `existingBusiness`, when given, skips creating a country/city/business and
+ * reuses those instead — only a new venue/category/offer/slot is created. This
+ * is how a test builds *two venues under the same business*, needed for
+ * anything that exercises a trial rule scoped wider than a single venue
+ * (`ONE_TRIAL_PER_BUSINESS`), e.g.
+ * `trial-eligibility-concurrency.integration.test.ts`. `cleanup()` only tears
+ * down what this call itself created, so the caller who owns the shared
+ * business/city is responsible for its own cleanup.
+ */
 export async function seedBookableSlot(
   db: Database,
-  options: { capacity: number; priceAmount?: number; trialRule?: 'ONE_TRIAL_PER_VENUE' | 'NO_RESTRICTION' },
+  options: {
+    capacity: number;
+    priceAmount?: number;
+    trialRule?: TrialRule;
+    existingBusiness?: { businessId: string; cityId: string };
+  },
 ): Promise<{
   slotId: string;
   offerId: string;
   venueId: string;
   businessId: string;
+  cityId: string;
   cleanup: () => Promise<void>;
 }> {
   const suffix = Math.random().toString(36).slice(2, 10);
 
-  const country = await insertUniqueCountry(db, suffix);
-  const [city] = await db
-    .insert(schema.cities)
-    .values({
-      countryId: country!.id,
-      slug: `city-${suffix}`,
-      name: 'Test City',
-      latitude: 50.8467,
-      longitude: 4.3525,
-    })
-    .returning();
-  const [business] = await db
-    .insert(schema.businesses)
-    .values({
-      slug: `biz-${suffix}`,
-      name: 'Test Business',
-      contactEmail: `biz-${suffix}@try.local`,
-      status: 'ACTIVE',
-    })
-    .returning();
+  let country: { id: string } | undefined;
+  let city: { id: string } | undefined;
+  let business: { id: string } | undefined;
+
+  if (options.existingBusiness) {
+    business = { id: options.existingBusiness.businessId };
+    city = { id: options.existingBusiness.cityId };
+  } else {
+    country = await insertUniqueCountry(db, suffix);
+    [city] = await db
+      .insert(schema.cities)
+      .values({
+        countryId: country!.id,
+        slug: `city-${suffix}`,
+        name: 'Test City',
+        latitude: 50.8467,
+        longitude: 4.3525,
+      })
+      .returning();
+    [business] = await db
+      .insert(schema.businesses)
+      .values({
+        slug: `biz-${suffix}`,
+        name: 'Test Business',
+        contactEmail: `biz-${suffix}@try.local`,
+        status: 'ACTIVE',
+      })
+      .returning();
+  }
+
   const [venue] = await db
     .insert(schema.venues)
     .values({
@@ -167,15 +195,20 @@ export async function seedBookableSlot(
     offerId: offer!.id,
     venueId: venue!.id,
     businessId: business!.id,
+    cityId: city!.id,
     cleanup: async () => {
       await db.execute(sql`DELETE FROM reservations WHERE slot_id = ${slot!.id}`);
       await db.execute(sql`DELETE FROM slots WHERE id = ${slot!.id}`);
       await db.execute(sql`DELETE FROM offers WHERE id = ${offer!.id}`);
       await db.execute(sql`DELETE FROM venues WHERE id = ${venue!.id}`);
-      await db.execute(sql`DELETE FROM businesses WHERE id = ${business!.id}`);
+      if (!options.existingBusiness) {
+        await db.execute(sql`DELETE FROM businesses WHERE id = ${business!.id}`);
+      }
       await db.execute(sql`DELETE FROM categories WHERE id = ${category!.id}`);
-      await db.execute(sql`DELETE FROM cities WHERE id = ${city!.id}`);
-      await db.execute(sql`DELETE FROM countries WHERE id = ${country!.id}`);
+      if (!options.existingBusiness) {
+        await db.execute(sql`DELETE FROM cities WHERE id = ${city!.id}`);
+        await db.execute(sql`DELETE FROM countries WHERE id = ${country!.id}`);
+      }
     },
   };
 }
