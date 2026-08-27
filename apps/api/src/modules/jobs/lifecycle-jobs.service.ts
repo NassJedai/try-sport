@@ -109,8 +109,53 @@ export class LifecycleJobsService {
 
       if (expired.length > 0) {
         this.logger.info({ count: expired.length }, 'released expired payment holds');
+        await this.cancelDanglingPaymentIntents(expired.map((reservation) => reservation.id));
       }
     });
+  }
+
+  /**
+   * Best-effort cleanup of the provider side of an expired hold.
+   *
+   * Not required for correctness — the DB-side release above is what actually
+   * frees the seat and hands back the trial — but proactively cancelling the
+   * underlying PaymentIntent closes, rather than merely narrows, the window
+   * during which a customer could still be mid-payment on a Checkout page
+   * whose own expiry deliberately outlives this sweep by design (see
+   * `PAYMENT_HOLD_MINUTES` in `booking.service.ts`): a cancelled intent
+   * cannot be confirmed, so a `payment_intent.succeeded` arriving after this
+   * point becomes structurally impossible rather than merely unlikely. Runs
+   * after the sweep's own transaction has committed, for the same reason
+   * every other side effect here does: a rollback must never have already
+   * cancelled a live payment for a reservation the database still considers
+   * PAYMENT_PENDING. A failure per intent (provider outage, an intent
+   * already settled by a genuine last-second payment) is logged and
+   * otherwise ignored — the reservation is released regardless, and Stripe
+   * auto-cancels a Checkout Session's own PaymentIntent at its `expires_at`
+   * regardless of whether this call ever reaches it.
+   */
+  private async cancelDanglingPaymentIntents(reservationIds: string[]): Promise<void> {
+    const rows = await this.db
+      .select({ providerPaymentIntentId: schema.payments.providerPaymentIntentId })
+      .from(schema.payments)
+      .where(
+        and(
+          inArray(schema.payments.reservationId, reservationIds),
+          eq(schema.payments.status, 'REQUIRES_PAYMENT'),
+        ),
+      );
+
+    for (const row of rows) {
+      if (!row.providerPaymentIntentId) continue;
+      try {
+        await this.provider.cancelIntent(row.providerPaymentIntentId);
+      } catch (error) {
+        this.logger.warn(
+          { err: error, providerPaymentIntentId: row.providerPaymentIntentId },
+          "echec de l'annulation cote fournisseur d'un PaymentIntent expire (non bloquant)",
+        );
+      }
+    }
   }
 
   /**

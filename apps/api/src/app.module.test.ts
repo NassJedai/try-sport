@@ -96,7 +96,9 @@ describe('AppModule dependency graph', () => {
     // Local config has no Stripe keys, so paid bookings must fail loudly rather
     // than silently "succeed" with a fake payment.
     await expect(
-      (payments as unknown as { provider: { createIntent: () => Promise<unknown> } }).provider.createIntent(),
+      (
+        payments as unknown as { provider: { createCheckoutSession: () => Promise<unknown> } }
+      ).provider.createCheckoutSession(),
     ).rejects.toThrow();
   });
 });

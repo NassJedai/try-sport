@@ -211,7 +211,16 @@ export function createEndpoints(client: ApiClient) {
           reservationId: string;
           status: string;
           requiresPayment: boolean;
-          clientSecret: string | null;
+          /**
+           * Stripe-hosted checkout page to open in the phone's browser (e.g.
+           * with `expo-web-browser`'s `openAuthSessionAsync`, which is built
+           * for exactly this "open browser, wait for a deep-link redirect"
+           * shape). Null for a free booking. The webhook — not this response,
+           * and not whatever the browser redirects back to — is the source of
+           * truth for whether the booking actually confirmed; always re-check
+           * via `bookings.detail` rather than trusting a successful redirect.
+           */
+          checkoutUrl: string | null;
         }>('/v1/bookings', input, { idempotencyKey }),
 
       list: (scope: 'UPCOMING' | 'PAST' | 'ALL' = 'UPCOMING', cursor?: string) =>

@@ -10,7 +10,7 @@ import { WebhookDispatcherService } from '../src/modules/payments/webhook-dispat
 import { PaymentService } from '../src/modules/payments/payment.service.js';
 import { AdminBrowseService } from '../src/modules/admin/admin-browse.service.js';
 import type {
-  PaymentIntentResult,
+  CheckoutSessionResult,
   PaymentProvider,
   ProviderRefund,
   RefundOutcome,
@@ -61,8 +61,8 @@ class FakeProvider implements PaymentProvider {
     private readonly refundOutcome?: RefundOutcome,
   ) {}
 
-  createIntent(): Promise<PaymentIntentResult> {
-    return Promise.reject(new Error('createIntent not used in this test'));
+  createCheckoutSession(): Promise<CheckoutSessionResult> {
+    return Promise.reject(new Error('createCheckoutSession not used in this test'));
   }
 
   cancelIntent(): Promise<void> {

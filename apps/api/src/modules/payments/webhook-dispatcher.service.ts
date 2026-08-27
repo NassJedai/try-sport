@@ -36,6 +36,14 @@ export class WebhookDispatcherService {
       case 'PAYMENT_CANCELED':
         await this.payments.markFailed(fact.providerIntentId, 'canceled');
         return;
+      case 'CHECKOUT_COMPLETED':
+        await this.payments.applyCheckoutCompleted({
+          reservationId: fact.reservationId,
+          providerIntentId: fact.providerIntentId,
+          paid: fact.paid,
+          amountTotalMinor: fact.amountTotalMinor,
+        });
+        return;
       case 'REFUND_OBSERVED':
         await this.ledger.apply({
           providerIntentId: fact.refund.providerIntentId,

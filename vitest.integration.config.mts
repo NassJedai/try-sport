@@ -58,7 +58,23 @@ export default defineConfig({
   test: {
     include: ['**/*.integration.test.ts'],
     exclude: ['**/node_modules/**', '**/dist/**', '**/.claude/**'],
-    env: databaseUrl ? { TEST_DATABASE_URL: databaseUrl } : {},
+    env: {
+      ...(databaseUrl ? { TEST_DATABASE_URL: databaseUrl } : {}),
+      // Mêmes raisons que la base : vitest ne charge pas `.env` dans
+      // process.env, donc sans ce passe-plat les suites qui touchent Stripe se
+      // sautent en silence. Constaté le 27 août sur le premier test de
+      // paiement de bout en bout — écrit, vert en apparence, jamais exécuté.
+      // « skipped » n'est pas « passed », troisième rappel.
+      ...(process.env.STRIPE_SECRET_KEY ?? dotenv.STRIPE_SECRET_KEY
+        ? { STRIPE_SECRET_KEY: (process.env.STRIPE_SECRET_KEY ?? dotenv.STRIPE_SECRET_KEY)! }
+        : {}),
+      ...(process.env.STRIPE_WEBHOOK_SECRET ?? dotenv.STRIPE_WEBHOOK_SECRET
+        ? {
+            STRIPE_WEBHOOK_SECRET: (process.env.STRIPE_WEBHOOK_SECRET ??
+              dotenv.STRIPE_WEBHOOK_SECRET)!,
+          }
+        : {}),
+    },
     // Booking concurrency tests contend on the same rows on purpose.
     fileParallelism: false,
     testTimeout: 30_000,

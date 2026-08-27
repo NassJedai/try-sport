@@ -9,7 +9,7 @@ import { DomainEvents } from '../src/modules/events/domain-events.js';
 import { RefundLedgerService } from '../src/modules/payments/refund-ledger.service.js';
 import { PaymentService } from '../src/modules/payments/payment.service.js';
 import type {
-  PaymentIntentResult,
+  CheckoutSessionResult,
   PaymentProvider,
   ProviderRefund,
   RefundInput,
@@ -62,8 +62,8 @@ class FakeProvider implements PaymentProvider {
     private readonly listRefundsResult: ProviderRefund[] = [],
   ) {}
 
-  createIntent(): Promise<PaymentIntentResult> {
-    return Promise.reject(new Error('createIntent not used in this test'));
+  createCheckoutSession(): Promise<CheckoutSessionResult> {
+    return Promise.reject(new Error('createCheckoutSession not used in this test'));
   }
 
   cancelIntent(): Promise<void> {

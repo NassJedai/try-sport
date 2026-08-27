@@ -24,8 +24,50 @@ import { PaymentService } from '../payments/payment.service.js';
 import { DomainEvents } from '../events/domain-events.js';
 import { AuditService } from '../admin/audit.service.js';
 
-/** How long an unconfirmed booking holds a place before the sweeper releases it. */
-const PAYMENT_HOLD_MINUTES = 15;
+/**
+ * How long an unconfirmed booking holds a place before the sweeper releases it.
+ *
+ * Deliberately kept ABOVE `CHECKOUT_SESSION_MINUTES` below, by a margin, not
+ * equal to it. Two independent clocks bound the same payment attempt — the
+ * Checkout Session's own expiry at the provider, and this hold's expiry in
+ * our own database — and whichever is SHORTER is the one that actually
+ * decides when a customer can no longer pay. If the DB hold expired first, a
+ * customer still legitimately paying on the hosted page could have their
+ * capacity released and resold while their card was being charged: the
+ * `payment_intent.succeeded` webhook would still arrive and
+ * `PaymentService.markSucceeded` would still mark the payment SUCCEEDED, but
+ * `confirmReservationOnCapture` would find the reservation no longer
+ * PAYMENT_PENDING and silently do nothing — money captured, no confirmed
+ * booking, nothing automatic to fix it. Keeping the DB hold comfortably above
+ * the Checkout Session's own expiry makes the provider's own cutoff the one
+ * that always fires first, closing that window rather than merely narrowing
+ * it. The margin (2 minutes) covers `LifecycleJobsService.expirePaymentHolds`
+ * own cron granularity (`EVERY_MINUTE`) plus ordinary webhook delivery lag;
+ * `expirePaymentHolds` additionally cancels the underlying PaymentIntent for
+ * every hold it releases, as a second, independent guard against this same
+ * race — see its doc comment.
+ *
+ * Raised from 15 to 32 minutes on 2026-08-27, when payment moved from a
+ * PaymentIntent the mobile app created but never actually confirmed (no
+ * native build exists yet — Expo Go only) to a real, completable
+ * browser-hosted Checkout page. Stripe refuses a Checkout Session
+ * `expires_at` under 30 minutes for `mode: payment`, so 15 stopped being
+ * achievable regardless of preference once payment became real. This is a
+ * genuine product tradeoff — a slot stays unavailable to everyone else for up
+ * to 32 minutes because of one indecisive payer — flagged here rather than
+ * decided silently; lower it only together with `CHECKOUT_SESSION_MINUTES`,
+ * never alone.
+ */
+const PAYMENT_HOLD_MINUTES = 32;
+
+/**
+ * The Checkout Session's own lifetime, passed to the provider as
+ * `expiresAt`. Not a preference: 30 minutes is Stripe's documented floor for
+ * `expires_at` on a `mode: payment` session (max 24h) — asking for less is
+ * rejected by the API outright. See `PAYMENT_HOLD_MINUTES` above for why the
+ * DB hold must stay above this number, never below or equal to it.
+ */
+const CHECKOUT_SESSION_MINUTES = 30;
 
 /** Check-in opens before the session so nobody is turned away for being early. */
 const CHECKIN_OPENS_MINUTES_BEFORE = 60;
@@ -46,7 +88,14 @@ export interface CreateBookingResult {
   reservationId: string;
   status: ReservationStatus;
   requiresPayment: boolean;
-  clientSecret: string | null;
+  /**
+   * Stripe-hosted checkout page to open in the phone's browser. Null for a
+   * free booking. Returned once, at creation, exactly like the PaymentIntent
+   * client secret it replaces — never re-issued on a later read (see
+   * `BookingQueryService`), so a cached response cannot leak a live payment
+   * link into logs or client-side storage indefinitely.
+   */
+  checkoutUrl: string | null;
 }
 
 @Injectable()
@@ -243,20 +292,22 @@ export class BookingService {
         .set({ trialCount: sql`${schema.offers.trialCount} + 1` })
         .where(eq(schema.offers.id, context.offer.id));
 
-      let clientSecret: string | null = null;
+      let checkoutUrl: string | null = null;
       if (requiresPayment) {
         /**
-         * The PaymentIntent is created inside the transaction so a failure to
+         * The Checkout Session is created inside the transaction so a failure to
          * reach Stripe rolls back the held capacity. The reverse order would leak
          * a place on every Stripe outage.
          */
-        clientSecret = await this.payments.createIntentForReservation(tx, {
+        checkoutUrl = await this.payments.createIntentForReservation(tx, {
           reservationId,
           userId: input.userId,
           businessId: context.business.id,
           amount: context.offer.priceAmount,
           currency: context.offer.currency,
           commissionBasisPoints: context.business.commissionBasisPoints,
+          description: `${context.offer.title} — ${context.business.name}`,
+          checkoutExpiresAt: new Date(now.getTime() + CHECKOUT_SESSION_MINUTES * 60_000),
         });
       }
 
@@ -265,7 +316,7 @@ export class BookingService {
           reservationId,
           status: requiresPayment ? ('PAYMENT_PENDING' as const) : ('CONFIRMED' as const),
           requiresPayment,
-          clientSecret,
+          checkoutUrl,
         },
         event: {
           reservationId,
@@ -588,6 +639,7 @@ export class BookingService {
         },
         offer: {
           id: schema.offers.id,
+          title: schema.offers.title,
           status: schema.offers.status,
           priceAmount: schema.offers.priceAmount,
           currency: schema.offers.currency,
@@ -601,6 +653,7 @@ export class BookingService {
         },
         business: {
           id: schema.businesses.id,
+          name: schema.businesses.name,
           status: schema.businesses.status,
           commissionBasisPoints: schema.businesses.commissionBasisPoints,
         },

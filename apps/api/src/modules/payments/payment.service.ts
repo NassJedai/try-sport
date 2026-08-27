@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, eq, inArray, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import { applyBasisPoints, money } from '@try/utils';
 import type { CurrencyCode } from '@try/utils';
 import type { Clock } from '@try/utils';
@@ -42,12 +43,17 @@ export class PaymentService {
   ) {}
 
   /**
-   * Creates the PaymentIntent for a reservation and records our side of it.
+   * Creates a hosted Checkout Session for a reservation and records our side
+   * of it. Returns the URL to open in the customer's browser.
    *
    * The commission is computed here from the business's contract — never sent by
    * a client, never trusted from a webhook. `platformFee + merchant = amount` is
    * additionally enforced by a CHECK constraint, so a rounding mistake fails the
    * insert instead of quietly mis-paying a venue.
+   *
+   * `checkoutExpiresAt` is owned by the caller (`BookingService`, alongside the
+   * reservation's own hold window) — see `PAYMENT_HOLD_MINUTES` there for why
+   * the two must stay in a specific order, not just both "reasonable".
    */
   async createIntentForReservation(
     tx: Transaction,
@@ -58,24 +64,31 @@ export class PaymentService {
       amount: number;
       currency: CurrencyCode;
       commissionBasisPoints: number;
+      description: string;
+      checkoutExpiresAt: Date;
     },
   ): Promise<string> {
     const gross = money(input.amount, input.currency);
     const platformFee = applyBasisPoints(gross, input.commissionBasisPoints);
     const merchantAmount = gross.amount - platformFee.amount;
+    const { successUrl, cancelUrl } = this.buildReturnUrls(input.reservationId);
 
-    const intent = await this.provider.createIntent({
+    const session = await this.provider.createCheckoutSession({
       reservationId: input.reservationId,
       amountMinor: gross.amount,
       currency: input.currency,
       applicationFeeMinor: platformFee.amount,
+      description: input.description,
       metadata: {
         reservation_id: input.reservationId,
         business_id: input.businessId,
         user_id: input.userId,
       },
-      // Keyed on the reservation: a retry of this booking reuses the same intent.
+      // Keyed on the reservation: a retry of this booking reuses the same session.
       idempotencyKey: `reservation:${input.reservationId}`,
+      successUrl,
+      cancelUrl,
+      expiresAt: input.checkoutExpiresAt,
     });
 
     await tx.insert(schema.payments).values({
@@ -84,14 +97,37 @@ export class PaymentService {
       businessId: input.businessId,
       status: 'REQUIRES_PAYMENT',
       provider: 'STRIPE',
-      providerPaymentIntentId: intent.providerIntentId,
+      // Not knowable yet: Stripe does not create the underlying PaymentIntent
+      // for a Checkout Session until the customer opens the page (see
+      // `createCheckoutSession`'s doc comment). Backfilled by
+      // `applyCheckoutCompleted` once `checkout.session.completed` reveals it.
+      providerPaymentIntentId: null,
       amount: gross.amount,
       platformFeeAmount: platformFee.amount,
       merchantAmount,
       currency: input.currency,
     });
 
-    return intent.clientSecret;
+    return session.checkoutUrl;
+  }
+
+  /**
+   * Deep links back into the mobile app. `try://` is TRY's fixed URL scheme
+   * (see CLAUDE.md — a technical identifier, not user-facing text, hence
+   * hardcoded rather than configured). Purely a landing spot: nothing reads
+   * `status` to decide whether the booking is paid — that's the webhook's job
+   * — it only lets the app show the right screen immediately instead of
+   * dropping the customer on their booking list. If the deep link never
+   * fires at all (app not installed, an external browser that does not hand
+   * the scheme back, the customer closing the tab outright), the booking
+   * still resolves correctly the moment the webhook lands; the customer just
+   * has to reopen the app instead of being taken straight back into it.
+   */
+  private buildReturnUrls(reservationId: string): { successUrl: string; cancelUrl: string } {
+    return {
+      successUrl: `try://booking/${reservationId}/payment-return?status=success`,
+      cancelUrl: `try://booking/${reservationId}/payment-return?status=cancel`,
+    };
   }
 
   /**
@@ -109,47 +145,178 @@ export class PaymentService {
    * an idempotency question ("already settled, do not overwrite"), not a
    * revenue question ("does this count as GMV"), and the two happen to share
    * an answer today but are not guaranteed to forever.
+   *
+   * For a hosted-Checkout booking this fires as a redundant, order-independent
+   * safety net alongside `applyCheckoutCompleted` below — see that method's
+   * doc comment for why `providerPaymentIntentId` may still be null in
+   * `payments` when this event happens to arrive first.
    */
   async markSucceeded(providerIntentId: string, providerChargeId?: string | null): Promise<void> {
+    const outcome = await this.captureSucceeded({
+      updateWhere: and(
+        eq(schema.payments.providerPaymentIntentId, providerIntentId),
+        inArray(schema.payments.status, NEVER_CAPTURED_PAYMENT_STATUSES),
+      )!,
+      existingWhere: eq(schema.payments.providerPaymentIntentId, providerIntentId),
+      providerChargeId,
+      outOfSequenceLogMessage:
+        'payment_intent.succeeded livre hors sequence, apres un remboursement — ignore pour ne pas effacer le remboursement du bilan',
+      logContext: { providerIntentId },
+    });
+
+    if (outcome) this.emitCaptureOutcome(outcome, { providerIntentId });
+  }
+
+  /**
+   * Applies a verified `checkout.session.completed` event (or
+   * `checkout.session.async_payment_succeeded`, should that ever be wired up
+   * — see `stripe.provider.ts`).
+   *
+   * Cannot reuse `markSucceeded`'s lookup: a Checkout Session's underlying
+   * PaymentIntent does not exist at the moment `createIntentForReservation`
+   * writes the `payments` row (verified empirically against the real API —
+   * see `stripe.provider.ts`), so `providerPaymentIntentId` is still null
+   * there. This looks the row up by `reservationId` instead — taken from the
+   * session's own metadata, set by us at creation and never editable by the
+   * payer — and backfills `providerPaymentIntentId` with whatever the
+   * webhook now reveals, which is the first moment it is knowable. Every
+   * downstream consumer of that column (refunds, a redelivered
+   * `payment_intent.succeeded`) works unmodified from this point on.
+   *
+   * A `paid: false` fact (an async payment method still settling, or a
+   * session that closed without paying) is a deliberate no-op: nothing to
+   * capture yet, and the hold's own expiry sweep is what reclaims the slot
+   * if it never arrives.
+   *
+   * `amountTotalMinor`, when the event carries it, is folded into the UPDATE's
+   * own WHERE clause rather than checked separately: this reservation's
+   * `metadata.reservation_id` can only ever appear on the one Checkout
+   * Session `createIntentForReservation` created for it (server-set,
+   * idempotency-keyed one-per-reservation, never client-suppliable), so
+   * nothing today can actually present a mismatched amount here — but the
+   * check is cheap, and a mismatch is exactly the shape a future regression
+   * (a second code path creating sessions, a loosened idempotency key) would
+   * take. Cheaper to guard now than to explain later why it wasn't.
+   */
+  async applyCheckoutCompleted(input: {
+    reservationId: string | null;
+    providerIntentId: string | null;
+    paid: boolean;
+    amountTotalMinor: number | null;
+  }): Promise<void> {
+    if (!input.reservationId) {
+      this.logger.warn(
+        { providerIntentId: input.providerIntentId },
+        'checkout.session.completed sans reservation_id exploitable en metadata',
+      );
+      return;
+    }
+    if (!input.paid) return;
+
+    const updateConditions = [
+      eq(schema.payments.reservationId, input.reservationId),
+      inArray(schema.payments.status, NEVER_CAPTURED_PAYMENT_STATUSES),
+    ];
+    if (input.amountTotalMinor !== null) {
+      updateConditions.push(eq(schema.payments.amount, input.amountTotalMinor));
+    }
+
+    const outcome = await this.captureSucceeded({
+      updateWhere: and(...updateConditions)!,
+      existingWhere: eq(schema.payments.reservationId, input.reservationId),
+      providerIntentId: input.providerIntentId,
+      outOfSequenceLogMessage:
+        'checkout.session.completed livre hors sequence, apres un remboursement — ignore pour ne pas effacer le remboursement du bilan',
+      logContext: { reservationId: input.reservationId, providerIntentId: input.providerIntentId },
+    });
+
+    if (!outcome) {
+      // Distinguish a genuine mismatch from the ordinary "already applied" /
+      // "REFUNDED" cases `captureSucceeded` already logged: those return
+      // early inside the shared core, so reaching here with a row that
+      // exists, is still capturable, but simply has a different `amount`
+      // means the WHERE clause's amount condition is what rejected it.
+      const [existing] = await this.db
+        .select({ status: schema.payments.status, amount: schema.payments.amount })
+        .from(schema.payments)
+        .where(eq(schema.payments.reservationId, input.reservationId))
+        .limit(1);
+      if (
+        existing &&
+        input.amountTotalMinor !== null &&
+        existing.amount !== input.amountTotalMinor &&
+        (NEVER_CAPTURED_PAYMENT_STATUSES as readonly string[]).includes(existing.status)
+      ) {
+        this.logger.error(
+          {
+            reservationId: input.reservationId,
+            expected: existing.amount,
+            reported: input.amountTotalMinor,
+          },
+          'checkout.session.completed : montant rapporte par Stripe different du paiement enregistre — refuse',
+        );
+      }
+      return;
+    }
+
+    this.emitCaptureOutcome(outcome, { providerIntentId: input.providerIntentId ?? undefined });
+  }
+
+  /**
+   * Shared core of `markSucceeded` and `applyCheckoutCompleted`: mark a
+   * payment row SUCCEEDED and confirm its reservation, whichever column the
+   * caller can actually key on. Kept as one implementation on purpose —
+   * see `payment-capture-contract-dedup` in project memory for why letting
+   * two copies of this exact idempotency guard drift apart has already cost
+   * a bug once.
+   */
+  private async captureSucceeded(input: {
+    updateWhere: SQL;
+    existingWhere: SQL;
+    providerChargeId?: string | null;
+    providerIntentId?: string | null;
+    outOfSequenceLogMessage: string;
+    logContext: Record<string, unknown>;
+  }): Promise<{
+    payment: typeof schema.payments.$inferSelect;
+    confirmed: Awaited<ReturnType<typeof confirmReservationOnCapture>>;
+  } | null> {
     const now = this.clock.now();
 
-    const outcome = await this.db.transaction(async (tx) => {
+    return this.db.transaction(async (tx) => {
       const [payment] = await tx
         .update(schema.payments)
         .set({
           status: 'SUCCEEDED',
           succeededAt: now,
           updatedAt: now,
-          ...(providerChargeId
+          ...(input.providerChargeId
             ? {
-                providerChargeId: sql`COALESCE(${schema.payments.providerChargeId}, ${providerChargeId})`,
+                providerChargeId: sql`COALESCE(${schema.payments.providerChargeId}, ${input.providerChargeId})`,
+              }
+            : {}),
+          ...(input.providerIntentId
+            ? {
+                providerPaymentIntentId: sql`COALESCE(${schema.payments.providerPaymentIntentId}, ${input.providerIntentId})`,
               }
             : {}),
         })
-        .where(
-          and(
-            eq(schema.payments.providerPaymentIntentId, providerIntentId),
-            inArray(schema.payments.status, NEVER_CAPTURED_PAYMENT_STATUSES),
-          ),
-        )
+        .where(input.updateWhere)
         .returning();
 
       if (!payment) {
         const [existing] = await tx
           .select({ status: schema.payments.status })
           .from(schema.payments)
-          .where(eq(schema.payments.providerPaymentIntentId, providerIntentId))
+          .where(input.existingWhere)
           .limit(1);
 
         if (existing?.status === 'REFUNDED' || existing?.status === 'PARTIALLY_REFUNDED') {
-          this.logger.warn(
-            { providerIntentId, status: existing.status },
-            'payment_intent.succeeded livre hors sequence, apres un remboursement — ignore pour ne pas effacer le remboursement du bilan',
-          );
+          this.logger.warn({ ...input.logContext, status: existing.status }, input.outOfSequenceLogMessage);
         } else {
-          // Already processed, or an intent we do not know about. Both are safe to
+          // Already processed, or a payment we do not know about. Both are safe to
           // acknowledge; logging keeps the second case visible.
-          this.logger.info({ providerIntentId }, 'payment webhook ignored (already applied)');
+          this.logger.info(input.logContext, 'payment webhook ignored (already applied)');
         }
         return null;
       }
@@ -157,15 +324,23 @@ export class PaymentService {
       const confirmed = await confirmReservationOnCapture(tx, payment.reservationId, now);
       return { payment, confirmed };
     });
+  }
 
-    if (!outcome) return;
-
-    // Emis APRES le commit, exactement comme RefundLedgerService.apply() et
-    // BusinessService (LeadConverted) : emettre depuis l'interieur de la
-    // transaction ci-dessus exposerait un abonne (l'e-mail de confirmation) a
-    // un evenement pour un etat qu'une erreur survenue plus tard dans la meme
-    // transaction pourrait encore annuler. Rien ne peut plus le faire a partir
-    // d'ici : la transaction a deja commit.
+  /**
+   * Emis APRES le commit, exactement comme RefundLedgerService.apply() et
+   * BusinessService (LeadConverted) : emettre depuis l'interieur de la
+   * transaction de `captureSucceeded` exposerait un abonne (l'e-mail de
+   * confirmation) a un evenement pour un etat qu'une erreur survenue plus
+   * tard dans la meme transaction pourrait encore annuler. Rien ne peut plus
+   * le faire a partir d'ici : la transaction a deja commit.
+   */
+  private emitCaptureOutcome(
+    outcome: {
+      payment: typeof schema.payments.$inferSelect;
+      confirmed: Awaited<ReturnType<typeof confirmReservationOnCapture>>;
+    },
+    logContext: Record<string, unknown>,
+  ): void {
     if (outcome.confirmed) {
       this.events.emit('BookingConfirmed', {
         reservationId: outcome.confirmed.reservationId,
@@ -175,6 +350,19 @@ export class PaymentService {
         offerId: outcome.confirmed.offerId,
         isFree: false,
       });
+    } else {
+      // Money was just captured, but the reservation was no longer
+      // PAYMENT_PENDING (already EXPIRED, cancelled, ...) when the webhook
+      // landed — the residual race `PAYMENT_HOLD_MINUTES` in
+      // `booking.service.ts` narrows but does not claim to eliminate. There
+      // is no automatic recovery for this today: the capacity may already be
+      // resold, and nothing here issues a refund. Loud on purpose — this is
+      // the one path where the platform is now holding a customer's money
+      // against no live booking, and it needs a human to notice.
+      this.logger.error(
+        { ...logContext, paymentId: outcome.payment.id, reservationId: outcome.payment.reservationId },
+        'paiement encaisse mais reservation non confirmable — hold deja expire, aucun remboursement automatique',
+      );
     }
 
     this.events.emit('PaymentSucceeded', {

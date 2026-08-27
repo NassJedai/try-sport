@@ -6,8 +6,8 @@ import type { AppConfig } from '@try/config';
 import { CONFIG } from '../../common/config.module.js';
 import { ApiException } from '../../common/errors/api-exception.js';
 import type {
-  CreateIntentInput,
-  PaymentIntentResult,
+  CheckoutSessionResult,
+  CreateCheckoutSessionInput,
   PaymentProvider,
   ProviderRefund,
   ProviderRefundStatus,
@@ -38,30 +38,64 @@ export class StripePaymentProvider implements PaymentProvider {
     this.webhookSecret = config.STRIPE_WEBHOOK_SECRET;
   }
 
-  async createIntent(input: CreateIntentInput): Promise<PaymentIntentResult> {
-    const intent = await this.stripe.paymentIntents.create(
+  /**
+   * Creates a Checkout Session — a Stripe-hosted payment page — rather than a
+   * bare PaymentIntent. Chosen over the native card element because the
+   * mobile app has no native build yet (Expo Go only, see PROJECT_PLAN.md):
+   * this works today by opening a URL in the phone's browser, no
+   * `@stripe/stripe-react-native` required.
+   *
+   * Does NOT return a PaymentIntent id: verified empirically against the real
+   * API that `session.payment_intent` comes back `null` right after creation
+   * — even with an explicit `expand` — because Stripe does not create the
+   * underlying PaymentIntent until the customer actually opens the page. The
+   * domain learns it later, from `checkout.session.completed`
+   * (`WebhookFact.CHECKOUT_COMPLETED`), keyed on the reservation id carried
+   * in the session's own metadata rather than on an intent id that does not
+   * exist yet.
+   */
+  async createCheckoutSession(input: CreateCheckoutSessionInput): Promise<CheckoutSessionResult> {
+    const session = await this.stripe.checkout.sessions.create(
       {
-        amount: input.amountMinor,
-        currency: input.currency.toLowerCase(),
-        // Apple Pay and Google Pay arrive through the same automatic methods.
-        automatic_payment_methods: { enabled: true },
+        mode: 'payment',
+        line_items: [
+          {
+            quantity: 1,
+            price_data: {
+              currency: input.currency.toLowerCase(),
+              unit_amount: input.amountMinor,
+              product_data: { name: input.description },
+            },
+          },
+        ],
         metadata: input.metadata,
-        ...(input.connectedAccountId
-          ? {
-              application_fee_amount: input.applicationFeeMinor,
-              transfer_data: { destination: input.connectedAccountId },
-            }
-          : {}),
+        payment_intent_data: {
+          metadata: input.metadata,
+          ...(input.connectedAccountId
+            ? {
+                application_fee_amount: input.applicationFeeMinor,
+                transfer_data: { destination: input.connectedAccountId },
+              }
+            : {}),
+        },
+        success_url: input.successUrl,
+        cancel_url: input.cancelUrl,
+        // Stripe rejects anything under 30 minutes from creation for `mode:
+        // payment` — the caller (PaymentService) is responsible for a value
+        // that respects that floor with margin; this is not re-validated here
+        // so a mistake fails loudly against the real API instead of silently
+        // clamping to a value the caller did not ask for.
+        expires_at: Math.floor(input.expiresAt.getTime() / 1000),
       },
-      // Stripe's own idempotency, so a retried API call cannot create two intents.
+      // Stripe's own idempotency, so a retried API call cannot create two sessions.
       { idempotencyKey: input.idempotencyKey },
     );
 
-    if (!intent.client_secret) {
-      throw new ApiException('PAYMENT_FAILED', undefined, undefined, { intentId: intent.id });
+    if (!session.url) {
+      throw new ApiException('PAYMENT_FAILED', undefined, undefined, { sessionId: session.id });
     }
 
-    return { providerIntentId: intent.id, clientSecret: intent.client_secret };
+    return { checkoutUrl: session.url };
   }
 
   async cancelIntent(providerIntentId: string): Promise<void> {
@@ -303,10 +337,39 @@ function toFact(type: string, object: Record<string, unknown>): WebhookFact {
       return { kind: 'PAYMENT_CANCELED', providerIntentId };
     }
 
+    // The event our hosted Checkout flow actually confirms on. `object` here
+    // is the Session, not a PaymentIntent: `payment_intent` is a plain
+    // string id once the session has completed (never expanded — nothing
+    // here asks for it), and `metadata` is exactly what we set at creation
+    // (`payment.service.ts`), verbatim and never editable by the payer.
+    case 'checkout.session.completed': {
+      const metadata = object.metadata as { reservation_id?: unknown } | null | undefined;
+      const reservationId =
+        metadata && typeof metadata.reservation_id === 'string' ? metadata.reservation_id : null;
+      return {
+        kind: 'CHECKOUT_COMPLETED',
+        reservationId,
+        providerIntentId: idOf(object.payment_intent),
+        paid: object.payment_status === 'paid',
+        amountTotalMinor: typeof object.amount_total === 'number' ? object.amount_total : null,
+      };
+    }
+
     // Un litige n'est pas un remboursement (fonds retenus, frais de dossier,
     // decision contestable) : enregistre, journalise, hors perimetre assume.
     // `charge.succeeded` / `charge.updated` sont un doublon de
     // `payment_intent.succeeded` : aucun de ces types n'ecrit quoi que ce soit.
+    //
+    // Les evenements async de Checkout (methodes a reglement differe, type
+    // SEPA) sont volontairement hors perimetre de ce lot : seule la carte,
+    // qui regle en synchrone via `checkout.session.completed` ci-dessus, a
+    // ete testee de bout en bout contre le vrai Stripe. Une session qui
+    // n'aboutit jamais reste couverte par le sweep applicatif
+    // (`LifecycleJobsService.expirePaymentHolds`), qui ne depend d'aucun de
+    // ces evenements pour liberer la place.
+    case 'checkout.session.async_payment_succeeded':
+    case 'checkout.session.async_payment_failed':
+    case 'checkout.session.expired':
     case 'charge.dispute.created':
     case 'charge.dispute.updated':
     case 'charge.dispute.closed':
@@ -324,7 +387,7 @@ function toFact(type: string, object: Record<string, unknown>): WebhookFact {
  */
 @Injectable()
 export class UnconfiguredPaymentProvider implements PaymentProvider {
-  createIntent(): Promise<PaymentIntentResult> {
+  createCheckoutSession(): Promise<CheckoutSessionResult> {
     return Promise.reject(
       new ApiException(
         'SERVICE_UNAVAILABLE',

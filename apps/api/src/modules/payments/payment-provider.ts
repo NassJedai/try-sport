@@ -8,7 +8,7 @@ import type { CurrencyCode } from '@try/utils';
  * than touching the booking flow.
  */
 
-export interface CreateIntentInput {
+export interface CreateCheckoutSessionInput {
   reservationId: string;
   amountMinor: number;
   currency: CurrencyCode;
@@ -18,12 +18,36 @@ export interface CreateIntentInput {
   applicationFeeMinor?: number;
   metadata: Record<string, string>;
   idempotencyKey: string;
+  /** Line-item name shown on the hosted page — what the customer thinks they're paying for. */
+  description: string;
+  /**
+   * Where the provider sends the browser back to once the customer is done.
+   * Cosmetic only: the webhook is the sole source of truth for whether the
+   * reservation is confirmed, never this redirect. A closed tab, a failed
+   * deep link, or a customer who never returns must not change that.
+   */
+  successUrl: string;
+  cancelUrl: string;
+  /**
+   * The session stops accepting payment at this instant. The caller owns
+   * reconciling this against whatever hold window the reservation itself
+   * uses — the provider is not responsible for knowing that a shorter value
+   * might be silently rejected or might race the reservation's own expiry.
+   */
+  expiresAt: Date;
 }
 
-export interface PaymentIntentResult {
-  providerIntentId: string;
-  /** Handed to the client SDK; never a secret key. */
-  clientSecret: string;
+export interface CheckoutSessionResult {
+  /**
+   * Hosted page to open in the customer's browser. The only thing available
+   * right away: verified empirically against the real API (see
+   * `stripe.provider.ts`) that a Checkout Session's underlying PaymentIntent
+   * does not exist yet at creation time — `session.payment_intent` comes back
+   * `null` even with an explicit expand, until the customer actually opens
+   * the page. So there is no `providerIntentId` here; the domain learns it
+   * later, from the `checkout.session.completed` webhook.
+   */
+  checkoutUrl: string;
 }
 
 export interface RefundInput {
@@ -61,6 +85,23 @@ export type WebhookFact =
   | { kind: 'PAYMENT_SUCCEEDED'; providerIntentId: string; providerChargeId: string | null }
   | { kind: 'PAYMENT_FAILED'; providerIntentId: string; failureCode: string | null }
   | { kind: 'PAYMENT_CANCELED'; providerIntentId: string }
+  /**
+   * A Checkout Session finished. Unlike `PAYMENT_SUCCEEDED`, this cannot be
+   * keyed on a PaymentIntent id — the intent does not exist until the
+   * customer opens the page, so `payments` was written with it still null.
+   * `reservationId` (from the session's own metadata, set by us at creation
+   * and never editable by the payer) is what lets the domain find the row;
+   * `providerIntentId`, if present, backfills the column the rest of the
+   * domain (refunds, `payment_intent.*` events) already keys on.
+   */
+  | {
+      kind: 'CHECKOUT_COMPLETED';
+      reservationId: string | null;
+      providerIntentId: string | null;
+      paid: boolean;
+      /** `session.amount_total`, in minor units — a defence-in-depth cross-check. */
+      amountTotalMinor: number | null;
+    }
   | { kind: 'REFUND_OBSERVED'; refund: ProviderRefund }
   /** « Des remboursements existent sur ce paiement, relis-les. » Ne transporte
    *  aucune ecriture : refundedTotalMinor n'est qu'une sonde de comparaison. */
@@ -90,7 +131,7 @@ export type RefundOutcome =
   | { kind: 'ALREADY_SETTLED'; refunds: ProviderRefund[] };
 
 export interface PaymentProvider {
-  createIntent(input: CreateIntentInput): Promise<PaymentIntentResult>;
+  createCheckoutSession(input: CreateCheckoutSessionInput): Promise<CheckoutSessionResult>;
   cancelIntent(providerIntentId: string): Promise<void>;
   refund(input: RefundInput): Promise<RefundOutcome>;
   /** Relecture autoritative de tous les remboursements d'un paiement. */
