@@ -19,8 +19,10 @@ import { CLOCK } from '../../common/clock.js';
 import { LOGGER } from '../../common/logger.module.js';
 import { ApiException } from '../../common/errors/api-exception.js';
 import { CryptoService } from '../../common/crypto.service.js';
+import { hasBusinessRole, type AuthenticatedUser } from '../../common/auth/current-user.js';
 import { PaymentService } from '../payments/payment.service.js';
 import { DomainEvents } from '../events/domain-events.js';
+import { AuditService } from '../admin/audit.service.js';
 
 /** How long an unconfirmed booking holds a place before the sweeper releases it. */
 const PAYMENT_HOLD_MINUTES = 15;
@@ -28,6 +30,17 @@ const PAYMENT_HOLD_MINUTES = 15;
 /** Check-in opens before the session so nobody is turned away for being early. */
 const CHECKIN_OPENS_MINUTES_BEFORE = 60;
 const CHECKIN_CLOSES_MINUTES_AFTER = 120;
+
+/**
+ * Fenêtre du geste manuel « marquer absent » (`BookingService.markNoShow`).
+ *
+ * Bornée aux deux mêmes heures que le sweep automatique
+ * (`LifecycleJobsService.markNoShows`), lu depuis cette seule constante par
+ * les deux chemins : un membre du personnel et l'automate ne doivent jamais
+ * pouvoir se contredire sur « c'est encore le moment » ou « c'est trop tard ».
+ * Voir `BookingService.noShowWindow`.
+ */
+export const NO_SHOW_MANUAL_CUTOFF_HOURS = 4;
 
 export interface CreateBookingResult {
   reservationId: string;
@@ -45,6 +58,7 @@ export class BookingService {
     private readonly crypto: CryptoService,
     private readonly payments: PaymentService,
     private readonly events: DomainEvents,
+    private readonly audit: AuditService,
   ) {}
 
   /**
@@ -382,6 +396,123 @@ export class BookingService {
   }
 
   /**
+   * Un membre de l'établissement déclare qu'un client n'est pas venu.
+   *
+   * Ce geste existe en double : ce chemin manuel, et le sweep horaire
+   * `LifecycleJobsService.markNoShows` qui fait la même chose 4h après la fin
+   * de la séance pour les réservations qu'aucun membre du personnel n'a
+   * traitées à la main. Les deux doivent produire exactement le même état —
+   * même transition, même conséquence sur l'essai, aucun remboursement — pour
+   * que l'un ne prenne jamais le personnel à contre-pied de l'autre :
+   *
+   *   - **Depuis quel statut** : uniquement `CONFIRMED`, comme l'automate.
+   *     `assertTransition` le fait respecter — une réservation déjà annulée,
+   *     déjà check-in, ou déjà marquée absente ne peut pas l'être une seconde
+   *     fois (`NO_SHOW → NO_SHOW` n'existe pas dans la table).
+   *   - **Fenêtre** : `noShowWindow` ci-dessous — pas avant la fin de la
+   *     séance (on ne peut rien conclure sur une arrivée en retard tant que la
+   *     séance n'est pas terminée), pas après le même délai que l'automate
+   *     (passé ce délai, soit l'automate l'a déjà fait, soit la correction
+   *     relève d'un admin — pas d'une nouvelle déclaration du personnel sur un
+   *     souvenir qui devient vieux).
+   *   - **Essai** : `NO_SHOW` consomme l'allocation d'essai — table des
+   *     conséquences dans `reservation-state-machine.ts`, décision produit
+   *     déjà actée, pas rediscutée ici.
+   *   - **Argent** : aucun remboursement déclenché, comme l'automate. La seule
+   *     transition qui rembourse un no-show est `NO_SHOW → REFUNDED`, réservée
+   *     à un admin (« geste de bonne volonté après contestation ») — jamais
+   *     automatique à la déclaration.
+   *   - **Réversibilité** : `NO_SHOW → CHECKED_IN` existe dans la machine à
+   *     états mais reste réservé à l'acteur `ADMIN`, pas `BUSINESS`. Ce
+   *     service n'ouvre donc aucune correction : l'établissement qui se
+   *     trompe doit passer par une correction admin, pas se corriger seul —
+   *     l'inverse laisserait un établissement réécrire librement une
+   *     déclaration qui, ailleurs, consomme l'essai d'un client contre son gré.
+   */
+  async markNoShow(input: {
+    actor: AuthenticatedUser;
+    reservationId: string;
+  }): Promise<{ reservationId: string; status: 'NO_SHOW' }> {
+    const now = this.clock.now();
+
+    const event = await this.db.transaction(async (tx) => {
+      const [reservation] = await tx
+        .select()
+        .from(schema.reservations)
+        .where(eq(schema.reservations.id, input.reservationId))
+        .for('update')
+        .limit(1);
+
+      if (!reservation) throw ApiException.notFound('reservation', input.reservationId);
+
+      if (!hasBusinessRole(input.actor, reservation.businessId, 'STAFF')) {
+        throw ApiException.forbidden('not a member of this business');
+      }
+
+      // Statut d'abord : une transition interdite (déjà annulée, déjà
+      // check-in, déjà no-show) est refusée quel que soit l'horaire.
+      assertTransition(reservation.status, 'NO_SHOW', 'BUSINESS');
+
+      const window = BookingService.noShowWindow(reservation.slotEndAt);
+      if (now.getTime() < window.opensAt.getTime()) {
+        throw new ApiException(
+          'CONFLICT',
+          'La séance n’est pas encore terminée : reviens une fois qu’elle est passée pour signaler une absence.',
+          undefined,
+          { reservationId: reservation.id, reason: 'SESSION_NOT_OVER' },
+        );
+      }
+      if (now.getTime() > window.closesAt.getTime()) {
+        throw new ApiException(
+          'CONFLICT',
+          'Le délai pour signaler cette absence est dépassé. Le système l’a peut-être déjà fait, ou contacte le support.',
+          undefined,
+          { reservationId: reservation.id, reason: 'NO_SHOW_WINDOW_CLOSED' },
+        );
+      }
+
+      await tx
+        .update(schema.reservations)
+        .set({ status: 'NO_SHOW', updatedAt: now })
+        .where(eq(schema.reservations.id, reservation.id));
+
+      // Aligné avec `LifecycleJobsService.markNoShows` : l'essai reste
+      // consommé, la place reste occupée (aucune capacité à libérer, la
+      // séance est déjà passée), aucun remboursement.
+      await tx
+        .update(schema.trialHistory)
+        .set({ status: 'NO_SHOW', updatedAt: now })
+        .where(eq(schema.trialHistory.reservationId, reservation.id));
+
+      await this.audit.record(tx, {
+        actorId: input.actor.id,
+        actorType: 'BUSINESS_MEMBER',
+        action: 'reservation.no_show',
+        entityType: 'reservation',
+        entityId: reservation.id,
+        metadata: {
+          slotStartAt: reservation.slotStartAt,
+          slotEndAt: reservation.slotEndAt,
+          previousStatus: reservation.status,
+        },
+      });
+
+      return {
+        reservationId: reservation.id,
+        userId: reservation.userId,
+        businessId: reservation.businessId,
+        venueId: reservation.venueId,
+      };
+    });
+
+    // Après COMMIT, pour la même raison que `create`/`cancel` ci-dessus : un
+    // écouteur qui relit à travers le pool doit voir la ligne déjà validée.
+    this.events.emit('BookingNoShow', event);
+
+    return { reservationId: event.reservationId, status: 'NO_SHOW' };
+  }
+
+  /**
    * Releases the place a cancelled or expired booking held.
    * `GREATEST(reserved_count - 1, 0)` rather than a bare decrement: the CHECK
    * constraint forbids negatives, and a double-release bug should not take the
@@ -494,6 +625,19 @@ export class BookingService {
 
   static cancellationPolicyLabel(policy: keyof typeof CANCELLATION_POLICY_DEFINITIONS): string {
     return CANCELLATION_POLICY_DEFINITIONS[policy].labelFr;
+  }
+
+  /**
+   * Fenêtre pendant laquelle `markNoShow` accepte la déclaration d'un membre
+   * du personnel — voir `NO_SHOW_MANUAL_CUTOFF_HOURS`. `LifecycleJobsService`
+   * lit cette même constante pour son propre cutoff, afin que les deux
+   * chemins ne puissent jamais diverger sur la borne.
+   */
+  static noShowWindow(slotEndAt: Date): { opensAt: Date; closesAt: Date } {
+    return {
+      opensAt: slotEndAt,
+      closesAt: new Date(slotEndAt.getTime() + NO_SHOW_MANUAL_CUTOFF_HOURS * 3_600_000),
+    };
   }
 }
 

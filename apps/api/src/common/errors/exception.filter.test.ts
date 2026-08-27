@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ArgumentsHost } from '@nestjs/common';
-import { InvalidModerationTransitionError } from '@try/contracts';
+import { InvalidModerationTransitionError, InvalidReservationTransitionError } from '@try/contracts';
 import type { Logger } from '@try/logger';
 import { ApiExceptionFilter } from './exception.filter.js';
 
@@ -65,6 +65,27 @@ describe('ApiExceptionFilter', () => {
 
     expect(sent.status).toBe(409);
     expect((sent.body as { code: string }).code).toBe('CONFLICT');
+  });
+
+  /**
+   * Même défaut que la modération, côté réservations : avant cette branche,
+   * toute transition refusée par `assertTransition` (annuler une réservation
+   * déjà annulée, marquer deux fois un no-show…) atteignait le client en 500
+   * générique alors que `INVALID_STATE_TRANSITION` (409) existe dans le
+   * catalogue depuis le début, simplement jamais atteint.
+   */
+  it('mappe une transition de réservation invalide sur 409 INVALID_STATE_TRANSITION, jamais sur 500', () => {
+    const filter = new ApiExceptionFilter(silentLogger());
+    const { host, sent } = fakeHost();
+
+    filter.catch(
+      new InvalidReservationTransitionError('CANCELLED_USER', 'NO_SHOW', 'BUSINESS'),
+      host,
+    );
+
+    expect(sent.status).toBe(409);
+    expect((sent.body as { code: string }).code).toBe('INVALID_STATE_TRANSITION');
+    expect((sent.body as { message: string }).message).not.toMatch(/erreur est survenue/i);
   });
 
   it('une erreur vraiment inattendue reste une 500 générique (comportement inchangé)', () => {

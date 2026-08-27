@@ -135,6 +135,7 @@ describeIfDatabase('domain events are emitted after COMMIT, not from inside the 
       new CryptoService({ CHECKIN_TOKEN_SECRET: 'integration-test-secret' } as AppConfig),
       {} as PaymentService,
       events,
+      new AuditService(db),
     );
   }
 

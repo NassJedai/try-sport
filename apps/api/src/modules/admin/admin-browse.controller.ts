@@ -1,7 +1,7 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
-import { PAYMENT_STATUSES, RESERVATION_STATUSES } from '@try/contracts';
+import { PAYMENT_STATUSES, RESERVATION_STATUSES, VENUE_STATUSES } from '@try/contracts';
 import { Roles } from '../../common/auth/auth.guard.js';
 import { CurrentUser, type AuthenticatedUser } from '../../common/auth/current-user.js';
 import { zodQuery } from '../../common/zod-validation.pipe.js';
@@ -36,6 +36,19 @@ const bookingsQuerySchema = z.object({
  */
 const paymentsQuerySchema = z.object({
   status: z.enum(PAYMENT_STATUSES).optional(),
+  cursor: z.string().max(512).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+/**
+ * Même trio que `paymentsQuerySchema` juste au-dessus (filtre exact + curseur
+ * keyset + limite bornée) — voir `AdminBrowseService.venues()`. `q` cherche
+ * dans le nom du lieu ou celui de l'établissement, comme `usersQuerySchema`
+ * cherche dans l'e-mail ou le prénom.
+ */
+const venuesQuerySchema = z.object({
+  q: z.string().trim().max(120).optional(),
+  status: z.enum(VENUE_STATUSES).optional(),
   cursor: z.string().max(512).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
@@ -78,6 +91,15 @@ export class AdminBrowseController {
     @Query(zodQuery(paymentsQuerySchema)) query: unknown,
   ) {
     return this.browse.payments(user, query as z.infer<typeof paymentsQuerySchema>);
+  }
+
+  @Get('venues')
+  @ApiOperation({ summary: 'Recherche de lieux par nom, établissement ou statut' })
+  venues(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query(zodQuery(venuesQuerySchema)) query: unknown,
+  ) {
+    return this.browse.venues(user, query as z.infer<typeof venuesQuerySchema>);
   }
 
   @Get('venues/incomplete')

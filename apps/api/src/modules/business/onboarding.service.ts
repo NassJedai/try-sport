@@ -772,7 +772,15 @@ export class OnboardingService {
 
     await this.db
       .update(schema.offers)
-      .set({ status: target, updatedAt: this.clock.now() })
+      .set({
+        status: target,
+        // The business's own decision, never the venue-suspend cascade —
+        // clear the marker so an unrelated admin REINSTATE never treats this
+        // pause as one it caused. See `pausedByModerationAt` on `offers` and
+        // `moderation.service.ts` (`decideVenue`).
+        pausedByModerationAt: null,
+        updatedAt: this.clock.now(),
+      })
       .where(eq(schema.offers.id, input.offerId));
   }
 

@@ -7,7 +7,7 @@ import {
   missingVenueSubmissionRequirements,
   VENUE_SUBMISSION_REQUIREMENT_LABELS_FR,
 } from '@try/contracts';
-import type { PaymentStatus, VenueSubmissionRequirement } from '@try/contracts';
+import type { PaymentStatus, VenueStatus, VenueSubmissionRequirement } from '@try/contracts';
 import { schema } from '@try/database';
 import type { Database } from '@try/database';
 import { DATABASE } from '../../common/database.module.js';
@@ -96,6 +96,8 @@ export class AdminBrowseService {
       userEmail: string;
       offerTitle: string;
       venueName: string;
+      /** IANA, celui du lieu — voir `adminBookingSchema` dans `@try/contracts`. */
+      venueTimeZone: string;
       slotStartAt: string;
       price: { amount: number; currency: string };
       createdAt: string;
@@ -110,6 +112,7 @@ export class AdminBrowseService {
         userEmail: schema.users.email,
         offerTitle: schema.offers.title,
         venueName: schema.venues.name,
+        venueTimeZone: schema.venues.timeZone,
         slotStartAt: schema.reservations.slotStartAt,
         priceAmount: schema.reservations.priceAmount,
         currency: schema.reservations.currency,
@@ -137,6 +140,7 @@ export class AdminBrowseService {
         userEmail: row.userEmail,
         offerTitle: row.offerTitle,
         venueName: row.venueName,
+        venueTimeZone: row.venueTimeZone,
         slotStartAt: row.slotStartAt.toISOString(),
         price: money(row.priceAmount, row.currency as CurrencyCode),
         createdAt: row.createdAt.toISOString(),
@@ -286,6 +290,103 @@ export class AdminBrowseService {
           createdAt: row.createdAt.toISOString(),
         };
       }),
+      nextCursor: page.nextCursor,
+      total: totalRows[0]?.total ?? 0,
+    };
+  }
+
+  /**
+   * Recherche de lieux, tous statuts confondus — la brique manquante pour
+   * suspendre/réactiver un lieu sans en connaître l'UUID par cœur.
+   *
+   * `incompleteVenues` ci-dessous répond à une question différente (« quels
+   * dossiers relancer ? », filtré sur l'incomplétude) ; celle-ci répond à
+   * « trouve-moi ce lieu », sans présupposer de statut. Calquée sur
+   * `payments()` juste au-dessus : même trio filtre exact + curseur keyset +
+   * total, pour la même raison — un lieu suspendu ou archivé, par
+   * construction rare et ancien, doit rester atteignable même au-delà de la
+   * première page.
+   */
+  async venues(
+    actor: AuthenticatedUser,
+    query: { q?: string; status?: VenueStatus; cursor?: string; limit: number },
+  ): Promise<{
+    items: {
+      id: string;
+      name: string;
+      status: string;
+      businessId: string;
+      businessName: string;
+      cityName: string | null;
+      createdAt: string;
+    }[];
+    nextCursor: string | null;
+    total: number;
+  }> {
+    this.assertAdmin(actor);
+
+    const searchCondition = query.q
+      ? or(ilike(schema.venues.name, `%${query.q}%`), ilike(schema.businesses.name, `%${query.q}%`))
+      : undefined;
+    const statusCondition = query.status ? eq(schema.venues.status, query.status) : undefined;
+    // Un lieu supprimé n'est jamais un résultat de recherche valide — même
+    // logique que `incompleteVenues`.
+    const baseCondition = and(isNull(schema.venues.deletedAt), searchCondition, statusCondition);
+
+    // Même curseur keyset que `payments()` : voir les commentaires là-bas
+    // pour le raisonnement (pas un OFFSET, `id` départage les égalités de
+    // `created_at`).
+    const decoded = query.cursor ? decodeCursor(query.cursor) : null;
+    const cursor =
+      decoded && typeof decoded.sortValue === 'string'
+        ? { at: new Date(decoded.sortValue), id: decoded.id }
+        : null;
+    const cursorCondition = cursor
+      ? or(
+          lt(schema.venues.createdAt, cursor.at),
+          and(eq(schema.venues.createdAt, cursor.at), lt(schema.venues.id, cursor.id)),
+        )
+      : undefined;
+
+    const [rows, totalRows] = await Promise.all([
+      this.db
+        .select({
+          id: schema.venues.id,
+          name: schema.venues.name,
+          status: schema.venues.status,
+          businessId: schema.businesses.id,
+          businessName: schema.businesses.name,
+          cityName: schema.cities.name,
+          createdAt: schema.venues.createdAt,
+        })
+        .from(schema.venues)
+        .innerJoin(schema.businesses, eq(schema.businesses.id, schema.venues.businessId))
+        .leftJoin(schema.cities, eq(schema.cities.id, schema.venues.cityId))
+        .where(and(baseCondition, cursorCondition))
+        .orderBy(desc(schema.venues.createdAt), desc(schema.venues.id))
+        .limit(query.limit + 1),
+      this.db
+        .select({ total: sql<number>`COUNT(*)::int` })
+        .from(schema.venues)
+        .innerJoin(schema.businesses, eq(schema.businesses.id, schema.venues.businessId))
+        .where(baseCondition),
+    ]);
+
+    const page = buildCursorPage(rows, query.limit, (row) => ({
+      sortValue: row.createdAt.toISOString(),
+      id: row.id,
+    }));
+
+    return {
+      items: page.items.map((row) => ({
+        id: row.id,
+        name: row.name,
+        status: row.status,
+        businessId: row.businessId,
+        businessName: row.businessName,
+        cityName: row.cityName,
+        createdAt: row.createdAt.toISOString(),
+      })),
       nextCursor: page.nextCursor,
       total: totalRows[0]?.total ?? 0,
     };

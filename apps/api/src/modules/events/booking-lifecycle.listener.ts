@@ -43,6 +43,13 @@ export class BookingLifecycleListener implements OnModuleInit {
         'booking cancelled',
       );
     });
+
+    this.events.on('BookingNoShow', (payload) => {
+      this.logger.info(
+        { reservationId: payload.reservationId, businessId: payload.businessId },
+        'booking marked as no-show',
+      );
+    });
   }
 
   private async sendConfirmation(reservationId: string): Promise<void> {

@@ -163,14 +163,48 @@ export class ModerationService {
        *
        * Suspending a venue without pausing its offers would leave them bookable —
        * the single most damaging thing moderation could get wrong.
+       *
+       * `pausedByModerationAt` records that THIS cascade is what paused each
+       * row, so a later REINSTATE can wake exactly these offers back up and
+       * no others — see the symmetric block below and
+       * `packages/database/drizzle/0008_offer_moderation_pause_flag.sql`.
        */
+      let pausedOfferIds: string[] = [];
       if (target !== 'ACTIVE') {
-        await tx
+        const paused = await tx
           .update(schema.offers)
-          .set({ status: 'PAUSED', updatedAt: now })
+          .set({ status: 'PAUSED', pausedByModerationAt: now, updatedAt: now })
           .where(
             and(eq(schema.offers.venueId, input.venueId), eq(schema.offers.status, 'ACTIVE')),
-          );
+          )
+          .returning({ id: schema.offers.id });
+        pausedOfferIds = paused.map((row) => row.id);
+      }
+
+      /**
+       * Symmetric wake-up: reinstating a venue only reactivates the offers
+       * that THIS venue's suspension paused (`pausedByModerationAt IS NOT
+       * NULL`), never an offer the business paused on its own, nor one an
+       * admin paused directly via `decideOffer` — both of those explicitly
+       * clear the flag, so they are excluded here by construction. Decision
+       * from the project lead (2026-08-27): a pause the business made is
+       * theirs to lift, an unrelated admin reinstatement has no standing to
+       * reverse it.
+       */
+      let reactivatedOfferIds: string[] = [];
+      if (input.decision === 'REINSTATE') {
+        const reactivated = await tx
+          .update(schema.offers)
+          .set({ status: 'ACTIVE', pausedByModerationAt: null, updatedAt: now })
+          .where(
+            and(
+              eq(schema.offers.venueId, input.venueId),
+              eq(schema.offers.status, 'PAUSED'),
+              sql`${schema.offers.pausedByModerationAt} IS NOT NULL`,
+            ),
+          )
+          .returning({ id: schema.offers.id });
+        reactivatedOfferIds = reactivated.map((row) => row.id);
       }
 
       /**
@@ -207,7 +241,17 @@ export class ModerationService {
         action: `venue.${input.decision.toLowerCase()}`,
         entityType: 'venue',
         entityId: input.venueId,
-        metadata: { from: venue.status, to: target, reason },
+        metadata: {
+          from: venue.status,
+          to: target,
+          reason,
+          // Trace explicitement les effets en cascade sur les offres : quelles
+          // ont été mises en pause par CETTE suspension, quelles ont été
+          // réveillées par CETTE réactivation — jamais toutes les offres du
+          // lieu, voir les commentaires ci-dessus sur `pausedByModerationAt`.
+          pausedOfferIds,
+          reactivatedOfferIds,
+        },
       });
 
       this.logger.info(
@@ -296,6 +340,11 @@ export class ModerationService {
           // that the discovery ranking reads.
           publishedAt: target === 'ACTIVE' ? (offer.publishedAt ?? now) : offer.publishedAt,
           rejectedReason: input.decision === 'REJECT' ? reason : null,
+          // This is a decision on THIS offer specifically, never the
+          // venue-suspend cascade — always clear the marker so a later venue
+          // REINSTATE never sweeps this offer up. See
+          // `pausedByModerationAt` on the `offers` table.
+          pausedByModerationAt: null,
           updatedAt: now,
         })
         .where(eq(schema.offers.id, input.offerId));

@@ -1,4 +1,5 @@
 import type {
+  AdminBookingDto,
   AuthSessionDto,
   AvailabilityResponseDto,
   BookingDto,
@@ -16,9 +17,12 @@ import type {
   NotificationDto,
   OfferCardPageDto,
   OfferDetailDto,
+  OfferStatus,
+  ReservationStatus,
   SearchOffersQueryDto,
   UpdateOfferDto,
   UpdateVenueDto,
+  VenueStatus,
   ViewerDto,
 } from '@try/contracts';
 import type { ApiClient } from './http.js';
@@ -93,6 +97,41 @@ export interface AdminPaymentDto {
  * regroupement `payment-capture.ts`).
  */
 export interface AdminPaymentsQuery {
+  status?: string;
+  cursor?: string;
+  limit?: number;
+}
+
+/**
+ * Réponse de `GET /v1/admin/venues`.
+ *
+ * Même situation que `AdminPaymentDto` ci-dessus : pas de DTO dans
+ * `@try/contracts`, à synchroniser à la main avec le type de retour de
+ * `AdminBrowseService.venues()`
+ * (`apps/api/src/modules/admin/admin-browse.service.ts`). Signalé à
+ * `contracts-guardian` — cette forme n'est pas encore canonisée.
+ *
+ * Route ajoutée le 2026-08-27 : jusque-là, la console admin n'avait aucun
+ * moyen de trouver un lieu autrement qu'en connaissant déjà son UUID.
+ */
+export interface AdminVenueDto {
+  id: string;
+  name: string;
+  status: string;
+  businessId: string;
+  businessName: string;
+  cityName: string | null;
+  createdAt: string;
+}
+
+/**
+ * Corps de la requête `GET /v1/admin/venues` — voir `venuesQuerySchema` dans
+ * `apps/api/src/modules/admin/admin-browse.controller.ts`. `q` cherche dans
+ * le nom du lieu ou celui de l'établissement ; `status` est un statut exact
+ * de `VenueStatus`.
+ */
+export interface AdminVenuesQuery {
+  q?: string;
   status?: string;
   cursor?: string;
   limit?: number;
@@ -182,6 +221,19 @@ export function createEndpoints(client: ApiClient) {
 
       cancel: (bookingId: string, reason?: string) =>
         client.post<{ refunded: boolean }>(`/v1/bookings/${bookingId}/cancel`, { reason }),
+
+      /**
+       * Business staff action — the caller must be a member of the
+       * reservation's own business, enforced server-side. Nothing to send but
+       * the id: which status it must start from, and the allowed time window,
+       * are both resolved by the API (`apps/api/src/modules/bookings/booking.service.ts`,
+       * `markNoShow`).
+       */
+      markNoShow: (bookingId: string) =>
+        client.post<{ reservationId: string; status: 'NO_SHOW' }>(
+          `/v1/bookings/${bookingId}/no-show`,
+          {},
+        ),
     },
 
     notifications: {
@@ -294,6 +346,42 @@ export function createEndpoints(client: ApiClient) {
           '/v1/admin/payments',
           { query: { status: input.status, cursor: input.cursor, limit: input.limit ?? 50 } },
         ),
+
+      bookings: (input: { status?: ReservationStatus; limit?: number } = {}) =>
+        client.get<{ items: AdminBookingDto[] }>('/v1/admin/bookings', {
+          query: { status: input.status, limit: input.limit },
+        }),
+
+      venues: (input: AdminVenuesQuery = {}) =>
+        client.get<{ items: AdminVenueDto[]; nextCursor: string | null; total: number }>(
+          '/v1/admin/venues',
+          {
+            query: {
+              q: input.q,
+              status: input.status,
+              cursor: input.cursor,
+              limit: input.limit ?? 50,
+            },
+          },
+        ),
+
+      /**
+       * `decision` couvre `APPROVE`/`REJECT` (déjà utilisés par la file de
+       * modération) et `SUSPEND`/`REINSTATE` — un lieu déjà actif que la
+       * plateforme retire ou réintègre. `reason` est ignoré par le serveur pour
+       * `REINSTATE`, et exigé (≥ `REJECTION_REASON_MIN_LENGTH`) pour `REJECT` et
+       * `SUSPEND` — voir `OnboardingService.assertRejectionReason`.
+       */
+      decideVenue: (
+        venueId: string,
+        input: { decision: 'APPROVE' | 'REJECT' | 'SUSPEND' | 'REINSTATE'; reason?: string },
+      ) => client.post<{ status: VenueStatus }>(`/v1/admin/venues/${venueId}/decision`, input),
+
+      /** Même route que la file de modération ; `PAUSE` retire une offre déjà active de la découverte. */
+      decideOffer: (
+        offerId: string,
+        input: { decision: 'APPROVE' | 'REJECT' | 'PAUSE'; reason?: string },
+      ) => client.post<{ status: OfferStatus }>(`/v1/admin/offers/${offerId}/decision`, input),
     },
   };
 }

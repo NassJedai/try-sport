@@ -11,6 +11,7 @@ import { LOGGER } from '../../common/logger.module.js';
 import { DomainEvents } from '../events/domain-events.js';
 import { IdempotencyService } from '../../common/idempotency/idempotency.service.js';
 import { ScheduleService } from '../scheduling/schedule.service.js';
+import { NO_SHOW_MANUAL_CUTOFF_HOURS } from '../bookings/booking.service.js';
 import { ReminderService } from '../notifications/reminder.service.js';
 import { PAYMENT_PROVIDER, type PaymentProvider } from '../payments/payment-provider.js';
 import { PaymentService } from '../payments/payment.service.js';
@@ -173,12 +174,19 @@ export class LifecycleJobsService {
    * Waits well past the end of the session: a venue that forgets to scan should
    * have time to do it manually, and wrongly recording a no-show costs the user
    * their trial allowance.
+   *
+   * The cutoff (`NO_SHOW_MANUAL_CUTOFF_HOURS`, from `BookingService`) is the
+   * same number the manual endpoint (`BookingService.markNoShow`) reads for
+   * its own window's upper bound: past that horizon, staff marking someone
+   * absent by hand and this sweep marking them absent automatically must
+   * agree on exactly when "too late" begins — a single constant, not two
+   * literals that could silently drift apart.
    */
   @Cron(CronExpression.EVERY_HOUR, { name: 'mark-no-shows' })
   async markNoShows(): Promise<void> {
     await this.withLock('jobs:no-shows', async () => {
       const now = this.clock.now();
-      const cutoff = new Date(now.getTime() - 4 * 3_600_000);
+      const cutoff = new Date(now.getTime() - NO_SHOW_MANUAL_CUTOFF_HOURS * 3_600_000);
 
       const rows = await this.db
         .update(schema.reservations)
@@ -189,7 +197,12 @@ export class LifecycleJobsService {
             lt(schema.reservations.slotEndAt, cutoff),
           ),
         )
-        .returning({ id: schema.reservations.id });
+        .returning({
+          id: schema.reservations.id,
+          userId: schema.reservations.userId,
+          businessId: schema.reservations.businessId,
+          venueId: schema.reservations.venueId,
+        });
 
       if (rows.length > 0) {
         await this.db
@@ -204,6 +217,18 @@ export class LifecycleJobsService {
               rows.map((row) => row.id),
             ),
           );
+
+        // Même événement que le geste manuel (`BookingService.markNoShow`) :
+        // un consommateur ne doit pas avoir à savoir lequel des deux chemins
+        // a détecté l'absence.
+        for (const row of rows) {
+          this.events.emit('BookingNoShow', {
+            reservationId: row.id,
+            userId: row.userId,
+            businessId: row.businessId,
+            venueId: row.venueId,
+          });
+        }
 
         this.logger.info({ count: rows.length }, 'marked no-shows');
       }

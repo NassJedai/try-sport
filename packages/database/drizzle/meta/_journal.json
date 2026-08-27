@@ -57,6 +57,13 @@
       "when": 1786743283647,
       "tag": "0007_trial_history_scope_guard",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1786743283648,
+      "tag": "0008_offer_moderation_pause_flag",
+      "breakpoints": true
     }
   ]
 }

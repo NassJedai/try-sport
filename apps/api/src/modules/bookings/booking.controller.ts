@@ -83,4 +83,22 @@ export class BookingController {
     const dto = body as { reason?: string };
     return this.bookings.cancel({ reservationId: id, userId: user.id, reason: dto.reason });
   }
+
+  /**
+   * Business-actor endpoint, unlike every other route on this controller:
+   * authorisation is resolved from the reservation's business membership
+   * (`hasBusinessRole`), not from `reservation.userId`. The client sends
+   * nothing but the id — which status it starts from, whether the session is
+   * actually over, and whether the window has closed are all resolved
+   * server-side. See `BookingService.markNoShow` for the full rationale.
+   */
+  @Post(':id/no-show')
+  @RateLimit('checkIn')
+  @ApiOperation({ summary: 'Business staff: mark a confirmed booking as a no-show' })
+  markNoShow(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
+  ): Promise<{ reservationId: string; status: 'NO_SHOW' }> {
+    return this.bookings.markNoShow({ actor: user, reservationId: id });
+  }
 }

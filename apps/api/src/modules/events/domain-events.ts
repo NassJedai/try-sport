@@ -64,6 +64,15 @@ export interface DomainEventMap {
     refunded: boolean;
   };
   BookingExpired: { reservationId: string; userId: string };
+  /**
+   * Une réservation confirmée est déclarée non honorée — soit par un membre
+   * de l'établissement (`BookingService.markNoShow`), soit par le sweep
+   * horaire (`LifecycleJobsService.markNoShows`). Les deux chemins émettent
+   * cet événement avec la même forme : un consommateur (notification,
+   * analytique) ne doit jamais avoir à distinguer "détecté par un humain" de
+   * "détecté par l'automate".
+   */
+  BookingNoShow: { reservationId: string; userId: string; businessId: string; venueId: string };
   CheckInCompleted: {
     reservationId: string;
     userId: string;

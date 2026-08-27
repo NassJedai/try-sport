@@ -8,6 +8,7 @@ import type { AppConfig } from '@try/config';
 import { TRIAL_CONSUMING_STATUSES } from '@try/contracts';
 import { BookingService, isUniqueViolation } from '../src/modules/bookings/booking.service.js';
 import { CryptoService } from '../src/common/crypto.service.js';
+import { AuditService } from '../src/modules/admin/audit.service.js';
 import { DomainEvents } from '../src/modules/events/domain-events.js';
 import type { PaymentService } from '../src/modules/payments/payment.service.js';
 import {
@@ -423,6 +424,7 @@ describeIfDatabase('essai concurrence — portée établissement', () => {
         new CryptoService({ CHECKIN_TOKEN_SECRET: 'integration-test-secret' } as AppConfig),
         {} as PaymentService,
         new DomainEvents(silentLogger as never),
+        new AuditService(ctx.db),
       );
 
       try {

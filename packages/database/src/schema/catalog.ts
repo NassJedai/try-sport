@@ -281,6 +281,20 @@ export const offers = pgTable(
 
     publishedAt: timestampColumn('published_at'),
     rejectedReason: text('rejected_reason'),
+    /**
+     * Non-null exactly when this offer's current PAUSED status came from the
+     * venue-suspend cascade in `moderation.service.ts` (`decideVenue`,
+     * `SYSTEM` actor), not from the business's own control
+     * (`setOfferPaused`) nor from an admin pausing this one offer directly
+     * (`decideOffer`). Both of those explicitly clear it back to `null`.
+     *
+     * Read only by the symmetric `REINSTATE` cascade: reactivating a venue
+     * must wake the offers ITS OWN suspension paused, never an offer the
+     * business chose to pause on its own — that decision belongs to the
+     * business, and an unrelated admin reinstatement has no standing to
+     * reverse it.
+     */
+    pausedByModerationAt: timestampColumn('paused_by_moderation_at'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     deletedAt: deletedAt(),

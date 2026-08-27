@@ -6,7 +6,11 @@ import {
   type ArgumentsHost,
   type ExceptionFilter,
 } from '@nestjs/common';
-import { ERROR_MESSAGES_FR, InvalidModerationTransitionError } from '@try/contracts';
+import {
+  ERROR_MESSAGES_FR,
+  InvalidModerationTransitionError,
+  InvalidReservationTransitionError,
+} from '@try/contracts';
 import type { ApiErrorBody, ErrorCode } from '@try/contracts';
 import { getRequestId } from '@try/logger';
 import type { Logger } from '@try/logger';
@@ -93,6 +97,27 @@ export class ApiExceptionFilter implements ExceptionFilter {
       return {
         status: HttpStatus.CONFLICT,
         body: { code: 'CONFLICT', message: ERROR_MESSAGES_FR.CONFLICT, requestId },
+        logLevel: 'warn',
+      };
+    }
+
+    /**
+     * Même défaut que ci-dessus, côté réservations : `assertTransition` lève
+     * `InvalidReservationTransitionError` (annulation d'une réservation déjà
+     * annulée, no-show marqué deux fois…), et rien ne la convertissait avant
+     * cette branche. `INVALID_STATE_TRANSITION` existe dans le catalogue
+     * depuis le début (`errors.ts`) mais n'était jamais atteint : toute
+     * transition refusée par la machine à états tombait dans le générique
+     * 500 ci-dessous, alors que 409 est la réponse correcte.
+     */
+    if (exception instanceof InvalidReservationTransitionError) {
+      return {
+        status: HttpStatus.CONFLICT,
+        body: {
+          code: 'INVALID_STATE_TRANSITION',
+          message: ERROR_MESSAGES_FR.INVALID_STATE_TRANSITION,
+          requestId,
+        },
         logLevel: 'warn',
       };
     }
