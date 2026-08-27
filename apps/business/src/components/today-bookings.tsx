@@ -101,7 +101,7 @@ export function TodayBookings({ businessId }: { businessId: string }) {
               {bookings.map((booking) => (
                 <tr key={booking.id} className="border-t border-border">
                   <td className="px-4 py-3 font-medium tabular-nums">
-                    {formatTimeInZone(new Date(booking.slotStartAt), 'Europe/Brussels')}
+                    {formatTimeInZone(new Date(booking.slotStartAt), booking.venueTimeZone)}
                   </td>
                   <td className="px-4 py-3">
                     {booking.attendeeFirstName}

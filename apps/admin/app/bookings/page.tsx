@@ -3,32 +3,16 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ApiError } from '@try/api-client';
-import { formatMoney } from '@try/utils';
-import { apiClient } from '@/lib/api';
-
-interface AdminBooking {
-  id: string;
-  status: string;
-  userEmail: string;
-  offerTitle: string;
-  venueName: string;
-  slotStartAt: string;
-  price: { amount: number; currency: 'EUR' };
-  createdAt: string;
-}
-
-const STATUSES = [
-  'CONFIRMED', 'CHECKED_IN', 'COMPLETED', 'PAYMENT_PENDING',
-  'CANCELLED_USER', 'CANCELLED_BUSINESS', 'NO_SHOW', 'EXPIRED', 'REFUNDED',
-] as const;
+import { RESERVATION_STATUSES, type ReservationStatus } from '@try/contracts';
+import { formatDateInZone, formatMoney } from '@try/utils';
+import { api } from '@/lib/api';
 
 export default function AdminBookingsPage() {
-  const [status, setStatus] = useState<string | undefined>(undefined);
+  const [status, setStatus] = useState<ReservationStatus | undefined>(undefined);
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['admin', 'bookings', status],
-    queryFn: () =>
-      apiClient.get<{ items: AdminBooking[] }>('/v1/admin/bookings', { query: { status } }),
+    queryFn: () => api.admin.bookings({ status }),
   });
 
   return (
@@ -45,7 +29,7 @@ export default function AdminBookingsPage() {
         >
           Toutes
         </button>
-        {STATUSES.map((value) => (
+        {RESERVATION_STATUSES.map((value) => (
           <button
             key={value}
             type="button"
@@ -88,7 +72,10 @@ export default function AdminBookingsPage() {
                     <td className="px-4 py-3">{booking.offerTitle}</td>
                     <td className="px-4 py-3 text-text-secondary">{booking.venueName}</td>
                     <td className="px-4 py-3 tabular-nums text-text-secondary">
-                      {new Date(booking.slotStartAt).toLocaleString('fr-BE', { dateStyle: 'short', timeStyle: 'short' })}
+                      {formatDateInZone(new Date(booking.slotStartAt), booking.venueTimeZone, 'fr-BE', {
+                        dateStyle: 'short',
+                        timeStyle: 'short',
+                      })}
                     </td>
                     <td className="px-4 py-3 tabular-nums">
                       {formatMoney(booking.price, { freeLabel: 'Gratuit', compactWholeAmounts: true })}

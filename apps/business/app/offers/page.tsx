@@ -3,8 +3,8 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@try/api-client';
-import type { BusinessSlotDto } from '@try/contracts';
-import { formatMoney } from '@try/utils';
+import type { BusinessSlotDto, OfferStatus } from '@try/contracts';
+import { formatDateInZone, formatMoney } from '@try/utils';
 import { api } from '@/lib/api';
 import { useBusinessId, useBusinessRole } from '@/lib/use-business';
 import { PhotoManager } from '@/components/photo-manager';
@@ -33,7 +33,7 @@ import { PhotoManager } from '@/components/photo-manager';
  * et prend le lavis d'accent : c'est un état transitoire vers la mise en ligne,
  * pas une information neutre comme un brouillon.
  */
-const OFFER_STATUS_LABELS: Record<string, { label: string; tone: string }> = {
+const OFFER_STATUS_LABELS: Record<OfferStatus, { label: string; tone: string }> = {
   ACTIVE: { label: 'En ligne', tone: 'bg-success-subtle text-success' },
   PAUSED: { label: 'En pause', tone: 'bg-warning-subtle text-warning' },
   PENDING_APPROVAL: { label: 'En vérification', tone: 'bg-accent-subtle text-accent-text' },
@@ -225,14 +225,18 @@ function SlotTable({
   const [confirming, setConfirming] = useState<string | null>(null);
   const [reason, setReason] = useState('');
 
-  const formatter = new Intl.DateTimeFormat('fr-BE', {
-    weekday: 'short',
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: 'Europe/Brussels',
-  });
+  // Chaque créneau porte le fuseau de son propre lieu : une salle qui gère
+  // plusieurs adresses peut avoir des lignes dans des fuseaux différents dans
+  // cette même table, donc le format se fait par ligne plutôt qu'avec une
+  // instance d'`Intl.DateTimeFormat` partagée sur un fuseau figé.
+  const formatWhen = (slot: BusinessSlotDto) =>
+    formatDateInZone(new Date(slot.startAt), slot.venueTimeZone, 'fr-BE', {
+      weekday: 'short',
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
 
   return (
     <div className="mt-4 overflow-x-auto rounded-card bg-surface shadow-sm">
@@ -254,7 +258,7 @@ function SlotTable({
             return (
               <tr key={slot.id} className={`border-b border-ink-50 ${cancelled ? 'opacity-50' : ''}`}>
                 <td className="whitespace-nowrap px-4 py-3 font-medium tabular-nums">
-                  {formatter.format(new Date(slot.startAt))}
+                  {formatWhen(slot)}
                 </td>
                 <td className="px-4 py-3">
                   {slot.offerTitle}
