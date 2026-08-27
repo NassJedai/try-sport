@@ -55,6 +55,34 @@ export async function acquireBusinessLock(
 }
 
 /**
+ * Serialises everything that resolves *which* `users` row an email address
+ * belongs to: creating a brand-new account, reactivating one that was
+ * anonymised by `AccountService.deleteAccount`, and the deletion itself.
+ *
+ * Without this, a signup and a deletion racing on the same address is a
+ * genuine read-then-write hazard, in both directions — `AuthService.
+ * findOrCreateUser` could read "no active account" for an address whose
+ * deletion has not committed yet and insert a second, duplicate row (a plain
+ * account-creation race, always latent here, now closed as a side effect);
+ * or `AccountService.deleteAccount` could anonymise a row while a concurrent
+ * signup is mid-flight against the same address, leaving one half of that
+ * signup's writes pointed at a row that is being erased under it.
+ *
+ * Keyed on the plaintext address, not on a user id: the two call sites are
+ * resolving *from* an address (a signup has no id yet; a deletion's
+ * reactivation counterpart looks the row up by a hash of the address, never
+ * by id), so the address is the only key both sides can compute upfront.
+ * Both callers pass the address normalised the same way it is stored
+ * (`emailSchema` — lowercase, trimmed) at the boundary that first receives
+ * it, so the two lock keys agree for the same real-world address.
+ */
+export async function acquireIdentityLock(executor: Executor, email: string): Promise<void> {
+  await executor.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtextextended(${`identity:${email.trim().toLowerCase()}`}, 0))`,
+  );
+}
+
+/**
  * Non-blocking variant for background jobs: returns false instead of waiting, so
  * a second worker skips work already in progress rather than queueing behind it.
  */

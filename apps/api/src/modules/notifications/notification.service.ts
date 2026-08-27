@@ -269,6 +269,28 @@ export class NotificationService {
   }
 
   /**
+   * Confirme la suppression du compte, à l'ancienne adresse — capturée par
+   * `AccountService.deleteAccount` avant l'anonymisation, jamais relue
+   * depuis `users` après coup puisque la colonne ne porte plus l'adresse
+   * réelle à ce moment-là.
+   */
+  async sendAccountDeletionConfirmation(input: {
+    email: string;
+    firstName: string | null;
+  }): Promise<void> {
+    await this.safeSend({
+      to: input.email,
+      subject: 'Ton compte TRIALYA a été supprimé',
+      body: [
+        `${input.firstName ? `Salut ${input.firstName},` : 'Salut,'}`,
+        `Ton compte TRIALYA vient d'être supprimé, à ta demande. Tes données personnelles ont été effacées.`,
+        `Certaines informations restent conservées pour des raisons comptables et légales (factures, historique de paiement), sans lien avec ton identité.`,
+        `Si tu n'es pas à l'origine de cette suppression, contacte le support TRIALYA au plus vite.`,
+      ].join('\n\n'),
+    });
+  }
+
+  /**
    * Sending must never propagate into the caller's transaction. A failed email is
    * a logged incident, not a failed booking.
    */

@@ -6,6 +6,7 @@ import {
   TRIAL_INELIGIBILITY_MESSAGES,
   assertTransition,
   assessCancellation,
+  canTransition,
   evaluateTrialEligibility,
 } from '@try/contracts';
 import type { CreateBookingDto, ReservationStatus, TrialHistoryEntry } from '@try/contracts';
@@ -444,6 +445,103 @@ export class BookingService {
     this.events.emit('BookingCancelled', event);
 
     return { refunded: event.refunded };
+  }
+
+  /**
+   * Annule toute réservation que cet utilisateur pourrait encore annuler
+   * lui-même, dans le cadre d'une suppression de compte
+   * (`AccountService.deleteAccount`). S'exécute dans la transaction de
+   * l'appelant : la suppression et chaque annulation qu'elle entraîne
+   * valident ou échouent ensemble — pas de compte à moitié anonymisé avec
+   * une réservation payante encore accrochée dessus.
+   *
+   * Même règle que `cancel`, appliquée en boucle plutôt que dupliquée :
+   * `assessCancellation.canCancel` reste « la séance n'a pas encore
+   * commencé », rien de spécifique à la suppression ne l'assouplit ni ne la
+   * durcit. Une réservation déjà engagée (CHECKED_IN, ou CONFIRMED/PENDING
+   * dont l'horaire est dépassé) est laissée telle quelle : la suppression ne
+   * doit pas fabriquer une transition que la machine à états n'autoriserait
+   * pas un `USER` à faire lui-même — elle se résout seule, par le check-in ou
+   * par le balayage des absences, que le compte derrière soit encore visible
+   * dans l'app ou non.
+   */
+  async cancelAllForDeletion(
+    tx: Transaction,
+    userId: string,
+    now: Date,
+  ): Promise<{ reservationId: string; userId: string; businessId: string; refunded: boolean }[]> {
+    const live = await tx
+      .select({ id: schema.reservations.id })
+      .from(schema.reservations)
+      .where(
+        and(
+          eq(schema.reservations.userId, userId),
+          inArray(schema.reservations.status, ['PENDING', 'PAYMENT_PENDING', 'CONFIRMED']),
+        ),
+      );
+
+    const events: { reservationId: string; userId: string; businessId: string; refunded: boolean }[] =
+      [];
+
+    for (const { id } of live) {
+      const [reservation] = await tx
+        .select()
+        .from(schema.reservations)
+        .where(eq(schema.reservations.id, id))
+        .for('update')
+        .limit(1);
+      // Résolue entre-temps par un autre chemin (check-in, expiration) — rien à faire.
+      if (!reservation) continue;
+      if (!canTransition(reservation.status, 'CANCELLED_USER', 'USER')) continue;
+
+      const [offer] = await tx
+        .select({ cancellationPolicy: schema.offers.cancellationPolicy })
+        .from(schema.offers)
+        .where(eq(schema.offers.id, reservation.offerId))
+        .limit(1);
+
+      const assessment = assessCancellation({
+        policy: offer?.cancellationPolicy ?? 'STANDARD',
+        slotStartAt: reservation.slotStartAt,
+        now,
+      });
+      // La séance a déjà commencé : laissée à son sort normal, voir la doc ci-dessus.
+      if (!assessment.canCancel) continue;
+
+      await tx
+        .update(schema.reservations)
+        .set({
+          status: 'CANCELLED_USER',
+          cancelledAt: now,
+          cancellationReason: 'Compte supprimé par l’utilisateur.',
+          updatedAt: now,
+        })
+        .where(eq(schema.reservations.id, reservation.id));
+
+      await this.releaseCapacity(tx, reservation.slotId, now);
+
+      await tx
+        .update(schema.trialHistory)
+        .set({ status: 'CANCELLED_USER', updatedAt: now })
+        .where(eq(schema.trialHistory.reservationId, reservation.id));
+
+      let refunded = false;
+      if (reservation.priceAmount > 0 && assessment.refundable) {
+        refunded = await this.payments.refundReservation(tx, {
+          reservationId: reservation.id,
+          reason: 'requested_by_customer',
+        });
+      }
+
+      events.push({
+        reservationId: reservation.id,
+        userId: reservation.userId,
+        businessId: reservation.businessId,
+        refunded,
+      });
+    }
+
+    return events;
   }
 
   /**

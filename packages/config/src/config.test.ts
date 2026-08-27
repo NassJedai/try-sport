@@ -5,6 +5,7 @@ const validLocal = {
   DATABASE_URL: 'postgres://localhost:5432/try',
   JWT_SECRET: 'a'.repeat(32),
   CHECKIN_TOKEN_SECRET: 'b'.repeat(32),
+  EMAIL_ERASURE_PEPPER: 'e'.repeat(32),
 };
 
 describe('configuration', () => {
@@ -23,6 +24,12 @@ describe('configuration', () => {
   it('rejects a short signing secret', () => {
     expect(() => loadConfig({ ...validLocal, JWT_SECRET: 'too-short' })).toThrow(
       /at least 32 characters/,
+    );
+  });
+
+  it('rejects a short erasure pepper', () => {
+    expect(() => loadConfig({ ...validLocal, EMAIL_ERASURE_PEPPER: 'too-short' })).toThrow(
+      /EMAIL_ERASURE_PEPPER must be at least 32 characters/,
     );
   });
 

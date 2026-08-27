@@ -49,6 +49,33 @@ const baseSchema = z.object({
   /** Separate, longer-lived secret for QR check-in tokens. */
   CHECKIN_TOKEN_SECRET: z.string().min(32, 'CHECKIN_TOKEN_SECRET must be at least 32 characters'),
 
+  /**
+   * Pepper HMAC utilisé pour reconnaître, au moment d'une nouvelle inscription,
+   * qu'une adresse e-mail correspond à un compte déjà anonymisé — voir
+   * `CryptoService.hashErasedEmail` et `AccountService.deleteAccount`.
+   *
+   * C'est le mécanisme qui empêche de contourner « une seule séance
+   * découverte » en supprimant son compte puis en se réinscrivant avec la
+   * même adresse : la ligne `users` anonymisée garde un pseudonyme non
+   * réversible de son ancienne adresse, une nouvelle inscription avec la
+   * même adresse recalcule le même pseudonyme et retombe sur la même ligne
+   * (et donc sur le même `trial_history`), au lieu d'en créer une nouvelle
+   * vierge.
+   *
+   * Un HMAC *à clé*, jamais un simple SHA-256 : l'espace des adresses e-mail
+   * plausibles est bien trop petit pour résister à une attaque par
+   * dictionnaire une fois la base compromise — c'est la clé, gardée
+   * uniquement côté serveur, qui fait de ce pseudonyme un secret plutôt
+   * qu'un identifiant reconstructible depuis une fuite de la seule base.
+   *
+   * Requis partout comme `JWT_SECRET`/`CHECKIN_TOKEN_SECRET`, pas seulement
+   * en production : la réactivation doit être exerçable dès le développement
+   * local et par la suite d'intégration.
+   */
+  EMAIL_ERASURE_PEPPER: z
+    .string()
+    .min(32, 'EMAIL_ERASURE_PEPPER must be at least 32 characters'),
+
   CORS_ALLOWED_ORIGINS: z
     .string()
     .default('http://localhost:3001,http://localhost:3002')

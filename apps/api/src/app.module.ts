@@ -64,6 +64,8 @@ import { ReviewService } from './modules/reviews/review.service.js';
 import { ReviewController } from './modules/reviews/review.controller.js';
 import { FavoriteService } from './modules/favorites/favorite.service.js';
 import { FavoriteController } from './modules/favorites/favorite.controller.js';
+import { AccountService } from './modules/users/account.service.js';
+import { AccountController } from './modules/users/account.controller.js';
 import { LifecycleJobsService } from './modules/jobs/lifecycle-jobs.service.js';
 import { ReferenceController } from './modules/reference/reference.controller.js';
 import { HealthController } from './modules/health/health.controller.js';
@@ -95,6 +97,7 @@ import { ModerationLifecycleListener } from './modules/events/moderation-lifecyc
     AdminBrowseController,
     ReviewController,
     FavoriteController,
+    AccountController,
     NotificationController,
     MediaController,
     MediaFileController,
@@ -144,6 +147,7 @@ import { ModerationLifecycleListener } from './modules/events/moderation-lifecyc
     AdminBrowseService,
     ReviewService,
     FavoriteService,
+    AccountService,
     LifecycleJobsService,
     MediaService,
 

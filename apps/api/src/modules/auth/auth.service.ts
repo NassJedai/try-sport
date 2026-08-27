@@ -1,8 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, gt, isNull, sql } from 'drizzle-orm';
+import { and, eq, gt, isNotNull, isNull, sql } from 'drizzle-orm';
 import { generateNumericOtp } from '@try/utils';
 import type { Clock } from '@try/utils';
-import { schema } from '@try/database';
+import { acquireIdentityLock, schema } from '@try/database';
 import type { Database } from '@try/database';
 import type { AppConfig } from '@try/config';
 import type { AuthSessionDto, RequestOtpDto, VerifyOtpDto, ViewerDto } from '@try/contracts';
@@ -182,6 +182,16 @@ export class AuthService {
       .limit(1);
 
     if (!row) throw ApiException.notFound('user', userId);
+    /**
+     * Un accès valide peut survivre quelques minutes à une suppression de
+     * compte (`AccountService.deleteAccount`) : le token d'accès est un JWT
+     * sans état, non révocable avant son expiration (`ACCESS_TOKEN_TTL_SECONDS`)
+     * — la même limite déjà acceptée pour `isSuspended`, qui n'est vérifié
+     * qu'à la connexion. Sans ce garde-fou, cette fenêtre résiduelle
+     * renverrait ici un compte anonymisé (adresse synthétique, profil
+     * disparu) comme s'il était valide.
+     */
+    if (row.user.anonymizedAt) throw ApiException.notFound('user', userId);
 
     const [memberships, interests] = await Promise.all([
       this.db
@@ -220,37 +230,102 @@ export class AuthService {
     };
   }
 
+  /**
+   * Résout un compte à partir d'une adresse vérifiée par OTP, sous trois
+   * formes possibles : compte existant, compte anonymisé qui revient
+   * (voir plus bas), ou compte tout neuf.
+   *
+   * Enveloppé dans une transaction verrouillée sur l'adresse
+   * (`acquireIdentityLock`) : sans ça, la lecture-puis-écriture ci-dessous
+   * est racy dans les deux sens décrits par le commentaire de ce verrou —
+   * y compris la simple création d'un compte tout neuf, qui n'avait jusqu'ici
+   * aucune garde contre deux `verifyOtp` concurrents sur la même adresse.
+   */
   private async findOrCreateUser(
     email: string,
     now: Date,
   ): Promise<{ user: typeof schema.users.$inferSelect; isNewUser: boolean }> {
-    const [existing] = await this.db
-      .select()
-      .from(schema.users)
-      .where(eq(schema.users.email, email))
-      .limit(1);
+    return this.db.transaction(async (tx) => {
+      await acquireIdentityLock(tx, email);
 
-    if (existing) {
-      if (existing.isSuspended) {
-        throw ApiException.forbidden('account suspended');
+      const [existing] = await tx
+        .select()
+        .from(schema.users)
+        .where(eq(schema.users.email, email))
+        .limit(1);
+
+      if (existing) {
+        if (existing.isSuspended) {
+          throw ApiException.forbidden('account suspended');
+        }
+        await tx
+          .update(schema.users)
+          .set({ lastSeenAt: now, emailVerifiedAt: existing.emailVerifiedAt ?? now })
+          .where(eq(schema.users.id, existing.id));
+        return { user: existing, isNewUser: false };
       }
-      await this.db
-        .update(schema.users)
-        .set({ lastSeenAt: now, emailVerifiedAt: existing.emailVerifiedAt ?? now })
-        .where(eq(schema.users.id, existing.id));
-      return { user: existing, isNewUser: false };
-    }
 
-    const [created] = await this.db
-      .insert(schema.users)
-      .values({ email, role: 'USER', emailVerifiedAt: now, lastSeenAt: now })
-      .returning();
+      /**
+       * Aucun compte actif sous cette adresse en clair. Avant de conclure
+       * « adresse jamais vue », vérifier si elle appartient à un compte
+       * anonymisé par `AccountService.deleteAccount` — son adresse en clair a
+       * été remplacée là-bas par un identifiant synthétique, mais un
+       * pseudonyme HMAC de l'ancienne adresse a été conservé pour exactement
+       * ce test (voir `users.emailHash`, `CryptoService.hashErasedEmail`).
+       */
+      const emailHash = this.crypto.hashErasedEmail(email);
+      const [anonymized] = await tx
+        .select()
+        .from(schema.users)
+        .where(and(eq(schema.users.emailHash, emailHash), isNotNull(schema.users.anonymizedAt)))
+        .limit(1);
 
-    if (!created) throw new ApiException('INTERNAL_ERROR');
+      if (anonymized) {
+        /**
+         * Compte de retour : réactive CETTE ligne, même id, plutôt que
+         * d'en créer une nouvelle. C'est ce qui rattache automatiquement la
+         * réinscription au `trial_history` déjà consommé sous cet id — sans
+         * quoi supprimer puis se réinscrire à la même adresse redonnerait une
+         * séance découverte gratuite, exactement la faille que ce mécanisme
+         * ferme (voir le commentaire de `EMAIL_ERASURE_PEPPER`,
+         * packages/config, pour l'argumentation complète).
+         *
+         * Le profil reste vierge : `profiles` a été supprimée à la
+         * suppression et n'est jamais reconstituée. `isNewUser: true` fait
+         * donc volontairement repasser ce compte par l'onboarding, comme un
+         * compte réellement neuf — il en a toutes les données.
+         */
+        const [reactivated] = await tx
+          .update(schema.users)
+          .set({
+            email,
+            anonymizedAt: null,
+            isSuspended: false,
+            emailVerifiedAt: now,
+            lastSeenAt: now,
+            updatedAt: now,
+          })
+          .where(eq(schema.users.id, anonymized.id))
+          .returning();
 
-    await this.db.insert(schema.profiles).values({ userId: created.id });
+        if (!reactivated) throw new ApiException('INTERNAL_ERROR');
 
-    return { user: created, isNewUser: true };
+        await tx.insert(schema.profiles).values({ userId: reactivated.id });
+
+        return { user: reactivated, isNewUser: true };
+      }
+
+      const [created] = await tx
+        .insert(schema.users)
+        .values({ email, role: 'USER', emailVerifiedAt: now, lastSeenAt: now })
+        .returning();
+
+      if (!created) throw new ApiException('INTERNAL_ERROR');
+
+      await tx.insert(schema.profiles).values({ userId: created.id });
+
+      return { user: created, isNewUser: true };
+    });
   }
 
   private async issueSession(

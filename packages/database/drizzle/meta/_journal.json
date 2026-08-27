@@ -64,6 +64,13 @@
       "when": 1786743283648,
       "tag": "0008_offer_moderation_pause_flag",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786743283649,
+      "tag": "0009_email_erasure_hash",
+      "breakpoints": true
     }
   ]
 }

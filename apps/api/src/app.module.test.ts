@@ -38,6 +38,7 @@ describe('AppModule dependency graph', () => {
       DATABASE_URL: 'postgres://user:pass@localhost:5432/try_test',
       JWT_SECRET: 'x'.repeat(32),
       CHECKIN_TOKEN_SECRET: 'y'.repeat(32),
+      EMAIL_ERASURE_PEPPER: 'z'.repeat(32),
     });
 
     moduleRef = await Test.createTestingModule({ imports: [AppModule] })

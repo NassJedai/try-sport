@@ -4,6 +4,7 @@ import { CryptoService, stableStringify } from './crypto.service.js';
 
 const service = new CryptoService({
   CHECKIN_TOKEN_SECRET: 'c'.repeat(32),
+  EMAIL_ERASURE_PEPPER: 'e'.repeat(32),
 } as AppConfig);
 
 describe('CryptoService', () => {
@@ -43,6 +44,40 @@ describe('CryptoService', () => {
       const other = new CryptoService({ CHECKIN_TOKEN_SECRET: 'd'.repeat(32) } as AppConfig);
       const payload = 'reservation-1.CODE';
       expect(service.signCheckInPayload(payload)).not.toBe(other.signCheckInPayload(payload));
+    });
+  });
+
+  describe('hashErasedEmail (suppression de compte)', () => {
+    it('est déterministe pour la même adresse', () => {
+      expect(service.hashErasedEmail('user@try.local')).toBe(
+        service.hashErasedEmail('user@try.local'),
+      );
+    });
+
+    it('normalise la casse et les espaces, comme emailSchema', () => {
+      expect(service.hashErasedEmail('User@Try.Local')).toBe(
+        service.hashErasedEmail(' user@try.local '),
+      );
+    });
+
+    it('distingue deux adresses différentes', () => {
+      expect(service.hashErasedEmail('user@try.local')).not.toBe(
+        service.hashErasedEmail('other@try.local'),
+      );
+    });
+
+    it('ne révèle pas l’adresse en clair', () => {
+      expect(service.hashErasedEmail('user@try.local')).not.toContain('user');
+    });
+
+    it('produit un pseudonyme différent sous un pepper différent', () => {
+      const other = new CryptoService({
+        CHECKIN_TOKEN_SECRET: 'c'.repeat(32),
+        EMAIL_ERASURE_PEPPER: 'f'.repeat(32),
+      } as AppConfig);
+      expect(service.hashErasedEmail('user@try.local')).not.toBe(
+        other.hashErasedEmail('user@try.local'),
+      );
     });
   });
 

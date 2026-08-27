@@ -50,6 +50,32 @@ export class CryptoService {
   verifyCheckInPayload(payload: string, signature: string): boolean {
     return this.safeEqual(this.signCheckInPayload(payload), signature);
   }
+
+  /**
+   * Pseudonyme stable d'une adresse e-mail, utilisé uniquement pour
+   * reconnaître — au moment d'une nouvelle inscription — qu'un compte a déjà
+   * été anonymisé sous cette adresse (`AccountService.deleteAccount`,
+   * `AuthService.findOrCreateUser`). Jamais utilisé pour retrouver un compte
+   * actif : ça reste la colonne `email` en clair, comme aujourd'hui.
+   *
+   * HMAC à clé, pas un simple `hashToken` (SHA-256 nu) : l'espace des
+   * adresses e-mail plausibles est bien trop petit pour résister à une
+   * attaque par dictionnaire une fois la base compromise — c'est
+   * `EMAIL_ERASURE_PEPPER`, gardé uniquement côté serveur, qui fait de ce
+   * pseudonyme un secret plutôt qu'un identifiant reconstructible depuis une
+   * fuite de la seule base.
+   *
+   * Normalise en interne (minuscule, espaces retirés) plutôt que de faire
+   * confiance à l'appelant : un appelant qui oublierait de normaliser
+   * produirait un pseudonyme qui ne correspond jamais à rien, en silence —
+   * la réactivation échouerait sans qu'aucun test ne le voie tant qu'il ne
+   * compare pas deux adresses différemment casées.
+   */
+  hashErasedEmail(email: string): string {
+    return createHmac('sha256', this.config.EMAIL_ERASURE_PEPPER)
+      .update(email.trim().toLowerCase())
+      .digest('hex');
+  }
 }
 
 /**

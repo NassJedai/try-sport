@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   boolean,
   index,
@@ -17,7 +18,15 @@ import { localeEnum, platformEnum, userRoleEnum } from './enums.js';
  * `users` is the minimal account record that must survive for accounting and
  * fraud history. `profiles` holds the personal data a user can ask us to erase.
  * A GDPR deletion therefore anonymises `users` and drops `profiles`, without
- * orphaning reservations or breaking payment reconciliation.
+ * orphaning reservations or breaking payment reconciliation. See
+ * `AccountService.deleteAccount` (apps/api) for exactly what is erased,
+ * anonymised, or kept untouched, table by table.
+ *
+ * Anonymisation never nulls `email` — the column is `NOT NULL` on purpose, so
+ * a half-migrated row can never surface a broken, unaddressable account.
+ * `AccountService` instead replaces it with a synthetic, unique,
+ * non-identifying placeholder (`erased+<id>@erased.try.invalid`; `.invalid`
+ * is the domain RFC 2606 reserves for exactly this).
  */
 export const users = pgTable(
   'users',
@@ -29,6 +38,18 @@ export const users = pgTable(
     isSuspended: boolean('is_suspended').notNull().default(false),
     /** Set when the account is erased; the row is kept but carries no PII. */
     anonymizedAt: timestampColumn('anonymized_at'),
+    /**
+     * Pseudonyme HMAC de l'adresse e-mail *au moment de l'anonymisation*
+     * (`CryptoService.hashErasedEmail`), écrit uniquement par
+     * `AccountService.deleteAccount`. NULL pour tout compte vivant : ce n'est
+     * jamais calculé au moment de l'inscription, seulement à la suppression,
+     * quand l'adresse en clair doit disparaître mais que la plateforme a
+     * encore besoin de reconnaître une réinscription à la même adresse — sans
+     * quoi supprimer puis recréer son compte redonnerait une séance
+     * découverte gratuite (voir la garde côté stockage ci-dessous et
+     * `AuthService.findOrCreateUser`, qui la consulte).
+     */
+    emailHash: varchar('email_hash', { length: 64 }),
     lastSeenAt: timestampColumn('last_seen_at'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -38,6 +59,16 @@ export const users = pgTable(
     uniqueIndex('users_email_key').on(table.email),
     index('users_role_idx').on(table.role),
     index('users_created_at_idx').on(table.createdAt),
+    /**
+     * Filet de stockage pour la réactivation, sur le même principe que les
+     * index de `trial_history` (migration 0007) : une régression du code
+     * applicatif doit se heurter à la base plutôt que produire deux lignes
+     * `users` anonymisées portant le même pseudonyme, ce qui rendrait
+     * `AuthService.findOrCreateUser` ambigu sur laquelle réactiver.
+     */
+    uniqueIndex('users_email_hash_erased_key')
+      .on(table.emailHash)
+      .where(sql`anonymized_at IS NOT NULL`),
   ],
 );
 
