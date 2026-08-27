@@ -224,7 +224,18 @@ describe('allocateRefundLine', () => {
     expect(l1.platformFeeAmount + l2.platformFeeAmount).toBe(313);
   });
 
-  it('property: pour toute partition aleatoire d\'un montant, les parts telescopent exactement', () => {
+  // 30 s de delai explicite, et non le defaut de 5 s. Ce balayage est
+  // DETERMINISTE — mulberry32 a graine fixe — donc il ne « passe » ni ne
+  // « casse » au hasard : il parcourt 2000 partitions et leurs permutations,
+  // ce qui prend quelques secondes sur une machine libre et davantage sur une
+  // machine chargee. Constate le 26 aout : echec a 9,1 s pendant que trois
+  // compilations tournaient en parallele.
+  //
+  // Un test d'argent qui tombe sous la charge apprend a relancer au lieu de
+  // lire — exactement le defaut qu'on a refuse ailleurs cette semaine. Le
+  // delai est donc pose pour ce qu'il est : le cout reel du balayage, pas une
+  // tolerance a une intermittence.
+  it('property: pour toute partition aleatoire d\'un montant, les parts telescopent exactement', { timeout: 30_000 }, () => {
     // PRNG a graine fixe (mulberry32) : reproductible sans dependance externe.
     function mulberry32(seed: number): () => number {
       let a = seed;

@@ -70,10 +70,19 @@ charge.refund.updated
 charge.refunded
 ```
 
-Les quatre derniers sont les nouveaux. Sans eux, un remboursement fait depuis le
-tableau de bord Stripe ne sera **jamais** répercuté en base : ni le montant, ni
-l'ajustement de commission. Le symptôme est silencieux — aucune erreur, juste des
-données qui divergent de la réalité Stripe.
+**Les CINQ derniers sont les nouveaux** — de `refund.created` à
+`charge.refunded` inclus. Cette phrase disait « les quatre derniers » jusqu'au
+26 août : elle excluait `refund.created`, c'est-à-dire **l'événement principal du
+remboursement**. Qui suivait ce document abonnait donc tout sauf l'essentiel, et
+n'avait aucun moyen de s'en apercevoir.
+
+Les trois premiers (`payment_intent.*`) existaient déjà. Vérifié dans le code :
+`stripe.provider.ts:266-308` traduit exactement ces huit types, ni plus ni moins.
+
+Sans les cinq nouveaux, un remboursement fait depuis le tableau de bord Stripe ne
+sera **jamais** répercuté en base : ni le montant, ni l'ajustement de commission.
+Le symptôme est silencieux — aucune erreur, juste des données qui divergent de la
+réalité Stripe.
 
 `charge.refunded` est volontairement conservé **en plus** de la famille
 `refund.*` : il sert de filet de rattrapage (relecture autoritative chez le

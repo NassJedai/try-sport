@@ -14,18 +14,30 @@ Europe without a rewrite.
 The repository was empty at the start of this build. Everything below was created
 from scratch.
 
+*Chiffres mesurés le 26 août 2026, cache turbo vidé. Toujours vérifier avec
+`npx turbo run typecheck --force` : sans `--force`, turbo répond « 18 réussites »
+en 17 millisecondes sans rien compiler.*
+
 | Layer | Status |
 | --- | --- |
 | Monorepo, tooling, CI config | Built |
-| `@try/utils`, `@try/contracts` | Built, 84 tests |
-| `@try/database` — schema, migrations, seed | Built, not executed (see §11) |
+| `@try/utils`, `@try/contracts` | Built — **229 tests** |
+| `@try/database` — schema, migrations, seed | Built **et exécuté** : 8 migrations appliquées, seed complet, 211 paiements de démonstration |
 | `@try/config`, `@try/logger` | Built, tested |
-| API — auth, discovery, offers, booking, check-in, payments, reviews, favourites | Built, 29 tests |
+| API — auth, discovery, offers, booking, check-in, payments, reviews, favourites | Built — **366 tests unitaires au total, 120 d'intégration sur 21 fichiers** |
 | Reservation lifecycle jobs | Built — hold expiry, completion, no-shows |
-| Mobile consumer app | Built — discovery → booking → QR → review |
-| Business web app | Built — dashboard, bookings, check-in, CRM |
-| Admin web app | Built — shell, access control, moderation + overview endpoints |
-| Supply onboarding | Built — business → venue → offer → schedule → submit → approve |
+| Mobile consumer app | Built — découverte → réservation → QR → avis. **Le chemin payant s'arrête à la réservation**, voir §10 |
+| Business web app | Built — dashboard, bookings, check-in, CRM, assistant d'inscription |
+| Admin web app | Built — modération, utilisateurs, réservations, paiements, métriques |
+| Supply onboarding | Built et **autonome** depuis le 26 août : un gérant s'inscrit, se fait refuser, corrige et resoumet sans aide |
+
+**Aucun de ces tests ne touche un écran.** Les 366 se répartissent entre
+`contracts`, `utils`, `api`, `config`, `logger` et `design-tokens` ;
+`apps/mobile`, `apps/business` et `apps/admin` n'en ont aucun. Les trois parcours
+à valider sont exactement les trois surfaces sans filet automatique — c'est la
+raison mécanique pour laquelle le motif « l'API réparée, le produit non » s'est
+répété trois fois le 22 août. Et `pnpm build` ne construit jamais l'app mobile :
+elle n'a pas de script `build`, seuls le typecheck et le lint la couvrent.
 
 ---
 
@@ -71,19 +83,19 @@ never touches Postgres.
 | ORM | Drizzle 0.45 | SQL transparency for PostGIS, versioned SQL migrations, no proprietary engine — [ADR-001](docs/adr/ADR-001-database-orm.md) |
 | Database | Postgres + PostGIS | Geo discovery is the core query; PostGIS is the only serious answer |
 | Validation | Zod 4 | One schema drives validation, types and OpenAPI |
-| Mobile | Expo 57 / RN 0.87, Expo Router | New Architecture, OTA updates, EAS |
+| Mobile | Expo 54 / RN 0.81, Expo Router | New Architecture, OTA updates, EAS. **Épinglé sur 54, pas au-dessus** : c'est la version que l'Expo Go de l'App Store supporte — « dernière version npm » n'est pas « version supportée » |
 | Web | Next.js 16, Tailwind 4 | Server Components where they pay, familiar to hire for |
 | Server state | TanStack Query | Cache, prefetch, optimistic updates |
 | Client state | Zustand | Local UI state only — server state is never duplicated into it |
-| Maps | Mapbox | Vector tiles, clustering, styling — [ADR-002](docs/adr/ADR-002-map-provider.md) |
+| Maps | `react-native-maps` (Apple Plans) | **ADR-002 a été renversée dans le code sans être mise à jour** : aucune dépendance Mapbox n'existe. Le renversement n'était documenté que dans un commentaire de `map.tsx` |
 | Auth | Own JWT + OTP, provider-agnostic | [ADR-003](docs/adr/ADR-003-authentication.md) |
-| Search | Postgres FTS behind `SearchProvider` | [ADR-005](docs/adr/ADR-005-search.md) |
+| Search | Postgres FTS, **en SQL brut inline** | `SearchProvider` n'existe pas — la recherche vit dans `discovery.repository.ts`. ADR-005 décrit l'intention, pas l'état |
 
 ---
 
 ## 4. Database schema
 
-38 tables. Full reference in `docs/database.md`. The load-bearing decisions:
+37 tables applicatives — la 38ᵉ que compte Postgres est `spatial_ref_sys`, table système de PostGIS. Full reference in `docs/database.md`. The load-bearing decisions:
 
 - **Money is integer minor units + currency, everywhere.** No floats. Commission
   in basis points so 12.5% is exact.
@@ -150,10 +162,11 @@ Budgets in `docs/performance.md`. Targets: read p95 < 300 ms, booking p95 < 700 
 excluding the payment provider, 60 fps minimum on mobile.
 
 The home screen is one aggregating call (`GET /v1/discovery/home`), not eight.
-Lists are cursor-paginated and bounded. Cards carry three image variants so a feed
-never downloads a 4000×3000 original for a thumbnail. Navigation is cached-first:
-tapping an offer renders the known image, title, price and venue immediately, then
-hydrates.
+Lists are bounded. **Deux réserves mesurées le 26 août :** la pagination de la
+découverte est un `OFFSET` déguisé en curseur (celle des paiements admin est un
+vrai keyset) ; et les « trois tailles d'image » n'existent pas — c'est la même
+URL suffixée `?w=400/800/1600`, et la route qui sert les fichiers **ignore ces
+paramètres**. Une vignette télécharge donc l'original, 855 Ko.
 
 ---
 
@@ -165,59 +178,71 @@ hydrates.
 | Double charge on retry | Idempotency keys; Stripe idempotency; idempotent webhooks |
 | Supply cold-start in a new city | Business onboarding is self-serve; ranking gives unproven venues a neutral score rather than last place |
 | Trial abuse | Eligibility evaluated under an advisory lock; no-shows count as consumed |
-| Vendor lock-in | Payment, storage, email, search and map providers all sit behind interfaces |
+| Vendor lock-in | **Deux interfaces sur cinq existent** : `PaymentProvider` et `EmailTransport`. Ni `SearchProvider`, ni `MapProvider`, ni interface de stockage — l'invariant 5 est tenu pour Stripe et Resend, aspirationnel pour le reste |
 | Scaling past the monolith | Extract only on measured CPU saturation, DB contention, queue latency or deployment coupling — not on principle |
 
 ---
 
 ## 10. MVP checklist
 
+*Révisé le 26 août 2026 après une campagne de tests exhaustive. La version
+précédente datait du 16 août et se trompait **dans les deux sens** : elle cochait
+des gestes qui n'existent pas, et annonçait comme manquantes trois choses déjà
+livrées. Un ✔ ici veut dire « un humain peut le faire depuis une interface », pas
+« le serveur sait le faire ».*
+
 **Consumer** — open app ✔ · create account ✔ · select interests ✔ · set location ✔ ·
 browse ✔ · filter ✔ · map ✔ · offer detail ✔ · availability ✔ · book free ✔ ·
-book paid ✔ · confirmation ✔ · upcoming booking ✔ · QR ✔ · check-in ✔ · review ✔ ·
+confirmation ✔ · upcoming booking ✔ · QR ✔ · check-in ✔ · review ✔ ·
 continuation answer ✔
 
+- **book paid ✘ — le trou le plus coûteux du produit.** L'app mobile n'a aucun
+  écran de paiement, aucune dépendance de paiement, et **jette** le `clientSecret`
+  que l'API lui renvoie. Un client réserve une séance payante, lit « C'est
+  réservé », et ne peut jamais payer : la réservation expire au bout de 15
+  minutes. **30 des 40 offres actives sont payantes.** Ce n'est pas une affaire
+  de clés Stripe, c'est un écran à construire.
+
 **Business** — create business ✔ · venue ✔ · offer ✔ · schedule ✔ · submit ✔ ·
-receive bookings ✔ · today's list ✔ · validate QR ✔ · mark no-show ✔ · leads ✔ ·
-update status ✔ · mark converted ✔ · analytics ✔
+receive bookings ✔ · today's list ✔ · leads ✔ · update status ✔ ·
+mark converted ✔ · analytics ✔
+
+- **validate QR — ✔ mais pas comme le nom le dit.** Le gérant ne scanne rien :
+  il saisit le code court au clavier. Il n'y a aucune caméra dans `apps/business`.
+  Le check-in fonctionne, par la dictée du code.
+- **mark no-show ✘** — aucun endpoint, aucun bouton. Seul un automate horaire le
+  fait, une heure après la séance. Le gérant, seule personne qui *sait* qu'un
+  client n'est pas venu, ne peut pas le déclarer.
 
 **Admin** — secure login ✔ · role enforced server-side and verified with real
 signed tokens (a valid USER token gets 403) ✔ · moderation queue ✔ ·
-approve/reject/suspend venue ✔ · approve/reject/pause offer ✔ · platform overview
-metrics ✔ · every decision audited in the same transaction ✔
+approve/reject venue ✔ · approve/reject offer ✔ · platform overview metrics ✔ ·
+every decision audited in the same transaction ✔ · users, bookings and payments
+browsing views ✔
 
-Still to build in the console UI: the users, bookings and payments *browsing*
-views. The endpoints they need beyond `/v1/admin/overview` do not exist yet.
+- **suspend venue ✘ · pause offer ✘** — l'API accepte `SUSPEND`, `REINSTATE` et
+  `PAUSE` ; la console ne les envoie jamais, et sa file ne liste que les dossiers
+  en attente d'approbation. Une salle active qui pose problème ne peut pas être
+  suspendue depuis le produit.
 
 **Business onboarding** — create business ✔ · add venue ✔ · create offer ✔ ·
 recurring schedule that materialises real slots ✔ · submit for approval ✔ ·
+correction path after a rejection ✔ · moderation decisions notified by email ✔ ·
+recover a draft venue with no offer ✔ · record the VAT number ✔ ·
 pause/resume ✔ · cancel a slot and release its bookings ✔
 
-The business web app exposes the dashboard, bookings, CRM, offers — **and the
-onboarding wizard**: `apps/business/app/onboarding/page.tsx` walks business →
-venue → offer → schedule → submit, refreshes the token after business creation
-(the JWT carries memberships, so the next call would 403 without it), and derives
-lat/lon from the commune centroid since no geocoding endpoint exists.
+Les trois lacunes que ce document listait comme bloquantes pour la V1 ont toutes
+été fermées entre le 17 et le 22 août — chemin de correction après un refus,
+notification des décisions de modération, et récupération d'un lieu en brouillon.
+La quatrième, l'enregistrement du numéro de TVA, était le blocage réel : il a
+laissé l'inscription impossible pendant six jours, l'API étant réparée et l'écran
+non branché.
 
-What is missing is not the wizard but **autonomy**. Three gaps stop a manager from
-signing up unaided, and the first two block V1:
-
-1. **No correction path after a rejection.** `updateVenueSchema` and
-   `updateOfferSchema` exist in `packages/contracts` but no endpoint consumes
-   them. A rejected venue is a dead end for its manager, even though
-   `moderation-state-machine.ts:36-40` explicitly allows `REJECTED →
-   PENDING_APPROVAL`.
-2. **Moderation decisions are silent.** `NotificationService` only sends the OTP
-   code, booking confirmations and reminders — nothing on approval or rejection.
-   The wizard's closing screen promises a reply that no code ever sends.
-3. **A draft venue with no offer is unreachable.** `GET /v1/businesses/:id/offers`
-   inner-joins venues, and no `GET .../venues` exists, so a manager who stops
-   between the venue and offer steps cannot recover the venue and will silently
-   create a duplicate.
-
-Also unexposed by the wizard today: photos (`PhotoManager` is wired to `/offers`
-only), every optional venue and offer field, and five of the seven
-`experienceType` values — the wizard infers the type from the price.
+**Ce que l'assistant n'expose toujours pas :** la portée de l'essai
+(`trialRule`), la politique d'annulation, le niveau, les langues, les
+équipements. Toute offre créée par le produit reçoit donc les valeurs par
+défaut, et la promesse « c'est la salle partenaire qui décide, offre par offre »
+n'est atteignable qu'en appelant l'API à la main.
 
 ---
 
