@@ -1,4 +1,14 @@
-import type { BusinessVenueDto, ExperienceType, OfferDetailDto, UpdateOfferDto, UpdateVenueDto } from '@try/contracts';
+import type {
+  BusinessVenueDto,
+  CancellationPolicy,
+  ExperienceType,
+  Locale,
+  OfferDetailDto,
+  SkillLevel,
+  TrialRule,
+  UpdateOfferDto,
+  UpdateVenueDto,
+} from '@try/contracts';
 
 /**
  * Construit les `PATCH` partiels envoyés depuis l'écran de récapitulatif.
@@ -59,6 +69,10 @@ export interface OfferFormValues {
   referencePriceAmount: number | null;
   durationMinutes: number;
   capacity: number;
+  trialRule: TrialRule;
+  skillLevel: SkillLevel;
+  languages: Locale[];
+  cancellationPolicy: CancellationPolicy;
 }
 
 /**
@@ -83,6 +97,12 @@ export function diffOfferPatch(
   }
   if (changed(original.durationMinutes, next.durationMinutes)) patch.durationMinutes = next.durationMinutes;
   if (changed(original.capacity, next.capacity)) patch.capacity = next.capacity;
+  if (changed(original.trialRule, next.trialRule)) patch.trialRule = next.trialRule;
+  if (changed(original.skillLevel, next.skillLevel)) patch.skillLevel = next.skillLevel;
+  if (changed(original.languages, next.languages)) patch.languages = next.languages;
+  if (changed(original.cancellationPolicy, next.cancellationPolicy)) {
+    patch.cancellationPolicy = next.cancellationPolicy;
+  }
 
   return patch;
 }

@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, queryKeys } from '@try/api-client';
 import type { UpdateBusinessInput } from '@try/api-client';
-import type { ExperienceType } from '@try/contracts';
+import type { CancellationPolicy, ExperienceType, Locale, SkillLevel, TrialRule } from '@try/contracts';
+import { DEFAULT_CANCELLATION_POLICY, DEFAULT_TRIAL_RULE } from '@try/contracts';
 import { parseDecimalToMinor, toDecimalString, zonedDayKey } from '@try/utils';
 import { api, apiClient, tokenStore } from '@/lib/api';
 import {
@@ -337,6 +338,18 @@ export default function OnboardingPage() {
   const [referencePrice, setReferencePrice] = useState(draft.referencePrice ?? '');
   const [duration, setDuration] = useState(draft.duration ?? '60');
   const [capacity, setCapacity] = useState(draft.capacity ?? DEFAULT_OFFER_CAPACITY);
+  // Portée de l'essai, niveau, langues et politique d'annulation : les champs
+  // que le gérant décide réellement ici plutôt que de subir le défaut du
+  // schéma (voir la revue de ce lot). `trialRule` est le seul des quatre à
+  // être modéré (`editable-fields.ts`) — les trois autres restent modifiables
+  // depuis le tableau de bord après la mise en ligne, sans repasser par le
+  // support.
+  const [trialRule, setTrialRule] = useState<TrialRule>(draft.trialRule ?? DEFAULT_TRIAL_RULE);
+  const [skillLevel, setSkillLevel] = useState<SkillLevel>(draft.skillLevel ?? 'ALL_LEVELS');
+  const [languages, setLanguages] = useState<Locale[]>(draft.languages ?? ['fr']);
+  const [cancellationPolicy, setCancellationPolicy] = useState<CancellationPolicy>(
+    draft.cancellationPolicy ?? DEFAULT_CANCELLATION_POLICY,
+  );
 
   const venueCategoryOptions = allCategories.filter((c) => categoryIds.includes(c.id));
 
@@ -388,6 +401,10 @@ export default function OnboardingPage() {
         referencePriceAmount: referenceAmount,
         durationMinutes: Number(duration),
         capacity,
+        trialRule,
+        skillLevel,
+        languages,
+        cancellationPolicy,
       });
     },
     onSuccess: (result) => {
@@ -402,6 +419,10 @@ export default function OnboardingPage() {
         price: undefined,
         referencePrice: undefined,
         duration: undefined,
+        trialRule: undefined,
+        skillLevel: undefined,
+        languages: undefined,
+        cancellationPolicy: undefined,
       });
       // `offerSummary` (dérivé de cette liste) sert à décider, à l'écran 8, si
       // l'offre doit encore être soumise (`status === 'DRAFT'`) — sans ce
@@ -445,6 +466,10 @@ export default function OnboardingPage() {
         referencePriceAmount: referenceAmount,
         durationMinutes: Number(duration),
         capacity,
+        trialRule,
+        skillLevel,
+        languages,
+        cancellationPolicy,
       });
       if (Object.keys(patch).length === 0) {
         setOfferEditing(false);
@@ -470,6 +495,10 @@ export default function OnboardingPage() {
     setReferencePrice(detail.referencePrice ? toDecimalString(detail.referencePrice) : '');
     setDuration(String(detail.durationMinutes));
     setCapacity(detail.capacity);
+    setTrialRule(detail.trialRule);
+    setSkillLevel(detail.skillLevel);
+    setLanguages(detail.languages);
+    setCancellationPolicy(detail.cancellationPolicy);
     setOfferEditing(true);
     clearErrors();
     setStep('offer-basics');
@@ -874,6 +903,19 @@ export default function OnboardingPage() {
           onDurationChange={withDraft('duration', setDuration)}
           capacity={capacity}
           onCapacityChange={withDraft('capacity', setCapacity)}
+          trialRule={trialRule}
+          onTrialRuleChange={withDraft('trialRule', setTrialRule)}
+          skillLevel={skillLevel}
+          onSkillLevelChange={withDraft('skillLevel', setSkillLevel)}
+          languages={languages}
+          onLanguagesChange={withDraft('languages', setLanguages)}
+          cancellationPolicy={cancellationPolicy}
+          onCancellationPolicyChange={withDraft('cancellationPolicy', setCancellationPolicy)}
+          // `null` en création : `trialRule` y est toujours modifiable, l'assistant
+          // crée en `DRAFT`. En édition, le statut réel de l'offre — presque
+          // toujours `DRAFT` ou `REJECTED` ici (voir `resolveResumePoint`), mais
+          // le composant grise le champ de lui-même si ce n'était plus le cas.
+          offerStatus={offerEditing ? (offerDetailQuery.data?.status ?? null) : null}
           fieldErrors={fieldErrors}
           onBack={() => setStep('offer-basics')}
           onSubmit={handleOfferFormatSubmit}
@@ -969,6 +1011,7 @@ export default function OnboardingPage() {
             referencePriceAmount: offerDetailQuery.data.referencePrice?.amount ?? null,
             durationMinutes: offerDetailQuery.data.durationMinutes,
             capacity: offerDetailQuery.data.capacity,
+            trialRule: offerDetailQuery.data.trialRule,
             rejectedReason: offerSummary?.rejectedReason ?? null,
           }}
           slotsCreated={totalSlotsCreated || offerSlotsCount}

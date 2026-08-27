@@ -1,12 +1,12 @@
 'use client';
 
-import type { BusinessVenueDto, ExperienceType, VenueSubmissionRequirement } from '@try/contracts';
+import type { BusinessVenueDto, ExperienceType, TrialRule, VenueSubmissionRequirement } from '@try/contracts';
 import {
   VENUE_SUBMISSION_REQUIREMENT_ACTIONS_FR,
   VENUE_SUBMISSION_REQUIREMENT_SCOPES,
 } from '@try/contracts';
 import { formatMoney } from '@try/utils';
-import { EXPERIENCE_TYPE_OPTIONS } from '@/lib/onboarding/constants';
+import { EXPERIENCE_TYPE_OPTIONS, TRIAL_RULE_OPTIONS } from '@/lib/onboarding/constants';
 import { StickyCta } from './sticky-cta';
 
 export interface ReviewOfferSummary {
@@ -17,6 +17,7 @@ export interface ReviewOfferSummary {
   referencePriceAmount: number | null;
   durationMinutes: number;
   capacity: number;
+  trialRule: TrialRule;
   rejectedReason: string | null;
 }
 
@@ -55,6 +56,8 @@ export function ReviewStep({
   const experienceLabel =
     EXPERIENCE_TYPE_OPTIONS.find((option) => option.value === offer.experienceType)?.label ??
     offer.experienceType;
+  const trialRuleLabel =
+    TRIAL_RULE_OPTIONS.find((option) => option.value === offer.trialRule)?.label ?? offer.trialRule;
 
   return (
     <div className="mt-8 flex flex-col gap-6">
@@ -122,6 +125,10 @@ export function ReviewStep({
           · {offer.durationMinutes} min · {offer.capacity} places
         </p>
         <p className="mt-1 text-sm text-text-secondary">{offer.description}</p>
+        <p className="mt-2 text-sm">
+          <span className="font-semibold">Essai découverte : </span>
+          <span className="text-text-secondary">{trialRuleLabel}</span>
+        </p>
       </section>
 
       <section className="rounded-card bg-surface p-4 shadow-sm">

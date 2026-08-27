@@ -1,6 +1,6 @@
 'use client';
 
-import type { ExperienceType } from '@try/contracts';
+import type { CancellationPolicy, ExperienceType, Locale, SkillLevel, TrialRule } from '@try/contracts';
 
 const DRAFT_KEY = 'try.business.onboarding.draft';
 
@@ -29,6 +29,10 @@ export interface OnboardingDraft {
   referencePrice?: string;
   duration?: string;
   capacity?: number;
+  trialRule?: TrialRule;
+  skillLevel?: SkillLevel;
+  languages?: Locale[];
+  cancellationPolicy?: CancellationPolicy;
   daysOfWeek?: number[];
   times?: string[];
   venueDescription?: string;

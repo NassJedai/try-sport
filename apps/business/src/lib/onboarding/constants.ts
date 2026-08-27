@@ -1,4 +1,5 @@
-import type { ExperienceType } from '@try/contracts';
+import type { CancellationPolicy, Locale, SkillLevel, TrialRule, ExperienceType } from '@try/contracts';
+import { CANCELLATION_POLICY_DEFINITIONS } from '@try/contracts';
 
 /**
  * Lundi → dimanche à l'écran — un gérant lit sa semaine ainsi, pas en commençant
@@ -44,6 +45,63 @@ export const EXPERIENCE_TYPE_OPTIONS: { value: ExperienceType; label: string; hi
   { value: 'DAY_PASS', label: 'Pass journée', hint: 'Accès libre à la salle pour une journée.' },
   { value: 'BEGINNER_CLASS', label: 'Cours débutant', hint: 'Un cours pensé pour les nouveaux venus.' },
   { value: 'PREMIUM_EXPERIENCE', label: 'Expérience premium', hint: 'Une séance haut de gamme.' },
+];
+
+/**
+ * Qui a droit au tarif découverte, dans les mots d'un gérant — pas dans ceux du
+ * schéma. `ONE_TRIAL_PER_VENUE` en tête : c'est `DEFAULT_TRIAL_RULE` côté
+ * contrat, et l'ordre d'affichage suit l'ordre de préférence, pas
+ * `TRIAL_RULES`.
+ *
+ * Le cas `NO_RESTRICTION` porte son avertissement dans son propre texte plutôt
+ * que dans un message d'erreur à part : un gérant qui lit « réservé aux offres
+ * au tarif normal » avant de cliquer n'a pas besoin d'être repris après coup.
+ * La validation stricte (`offerTrialConfigurationIsCoherent`) reste appliquée
+ * dans `OfferFormatStep`, pour le cas où il clique quand même.
+ */
+export const TRIAL_RULE_OPTIONS: { value: TrialRule; label: string; hint: string }[] = [
+  {
+    value: 'ONE_TRIAL_PER_VENUE',
+    label: 'Un essai par salle',
+    hint: 'Le tarif découverte ne se réserve qu’une fois dans ce lieu. Le choix habituel : un client qui revient plus tard paie le tarif normal, mais peut essayer une autre de tes salles s’il en existe une autre.',
+  },
+  {
+    value: 'ONE_TRIAL_PER_BUSINESS',
+    label: 'Un seul essai, dans toutes mes salles',
+    hint: 'Si tu gères plusieurs adresses, un même client ne profite du tarif découverte qu’une seule fois au total, quelle que soit la salle choisie.',
+  },
+  {
+    value: 'ONE_TRIAL_PER_OFFER',
+    label: 'Un essai par offre',
+    hint: 'Un même client peut essayer chacune de tes offres découverte une fois — utile si elles couvrent des activités bien différentes.',
+  },
+  {
+    value: 'NO_RESTRICTION',
+    label: 'Pas de limite',
+    hint: 'Un même client peut réserver ce tarif autant de fois qu’il veut. Réservé aux offres au tarif normal — impossible à combiner avec un essai gratuit ou un prix découverte.',
+  },
+];
+
+/** Quatre niveaux, en langage courant — le serveur ne connaît que la valeur `SkillLevel`. */
+export const SKILL_LEVEL_OPTIONS: { value: SkillLevel; label: string }[] = [
+  { value: 'ALL_LEVELS', label: 'Tous niveaux' },
+  { value: 'BEGINNER', label: 'Débutant' },
+  { value: 'INTERMEDIATE', label: 'Intermédiaire' },
+  { value: 'ADVANCED', label: 'Avancé' },
+];
+
+/** Les trois langues supportées par la plateforme — un multi-choix, jamais vide (voir schéma serveur). */
+export const LANGUAGE_OPTIONS: { value: Locale; label: string }[] = [
+  { value: 'fr', label: 'Français' },
+  { value: 'nl', label: 'Néerlandais' },
+  { value: 'en', label: 'Anglais' },
+];
+
+/** Réutilise le texte déjà validé côté contrat plutôt que d'en écrire un second, divergent à terme. */
+export const CANCELLATION_POLICY_OPTIONS: { value: CancellationPolicy; label: string }[] = [
+  { value: 'FLEXIBLE', label: CANCELLATION_POLICY_DEFINITIONS.FLEXIBLE.labelFr },
+  { value: 'STANDARD', label: CANCELLATION_POLICY_DEFINITIONS.STANDARD.labelFr },
+  { value: 'STRICT', label: CANCELLATION_POLICY_DEFINITIONS.STRICT.labelFr },
 ];
 
 /** Les huit écrans que crée réellement l'assistant, dans l'ordre — sert à la barre de progression. */
