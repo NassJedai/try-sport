@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
 import { useQuery } from '@tanstack/react-query';
-import { queryKeys } from '@try/api-client';
+import { ApiError, queryKeys } from '@try/api-client';
 import type { BookingDto } from '@try/contracts';
 import { formatDateInZone, formatTimeInZone } from '@try/utils';
 import { radius, spacing, typography } from '@try/design-tokens';
@@ -17,13 +17,41 @@ type Scope = 'UPCOMING' | 'PAST';
 
 export default function BookingsScreen() {
   const theme = useTheme();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const [scope, setScope] = useState<Scope>('UPCOMING');
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: queryKeys.bookings.list(scope),
     queryFn: () => api.bookings.list(scope),
+    // Être déconnecté est un état normal ici, pas une erreur à retenter — même
+    // traitement que favoris et profil.
+    retry: false,
   });
+
+  // GET /v1/bookings est protégé : un visiteur sans compte le touche dès qu'il
+  // ouvre cet onglet. Ce n'est pas un échec, c'est le signal d'inviter à se
+  // connecter plutôt que d'afficher un onglet vide ou une erreur générique.
+  const isAnonymous = isError && error instanceof ApiError && error.isAuthError;
+
+  if (isAnonymous) {
+    return (
+      <View
+        style={[
+          styles.fill,
+          { backgroundColor: theme.background, paddingTop: insets.top + spacing.base },
+        ]}
+      >
+        <EmptyState
+          emoji="▤"
+          title="Retrouve tes réservations"
+          message="Connecte-toi pour voir tes séances à venir et ton historique, sur tous tes appareils."
+          actionLabel="Se connecter"
+          onAction={() => router.push('/(auth)/sign-in')}
+        />
+      </View>
+    );
+  }
 
   return (
     <View

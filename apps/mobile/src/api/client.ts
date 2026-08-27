@@ -17,6 +17,19 @@ const REFRESH_TOKEN_KEY = 'try.refreshToken';
 class SecureTokenStore implements TokenStore {
   private accessTokenCache: string | null = null;
 
+  /**
+   * Est-ce que le dernier `clear()` a réellement jeté un jeton, c'est-à-dire
+   * s'il y avait une session à perdre.
+   *
+   * Lu par le gestionnaire de 401 global (plus bas) pour distinguer « ta
+   * session vient d'expirer » — ça mérite l'écran de connexion — de « tu ne
+   * t'es jamais connecté » — un visiteur en mode « Explorer sans compte » qui
+   * touche un endpoint protégé (la cloche, les favoris, les réservations) n'a
+   * rien à perdre et ne doit pas être éjecté. Recalculé à chaque `clear()`,
+   * jamais figé depuis le démarrage à froid.
+   */
+  private hadSessionAtLastClearFlag = false;
+
   async getAccessToken(): Promise<string | null> {
     this.accessTokenCache ??= await getSecureItem(ACCESS_TOKEN_KEY);
     return this.accessTokenCache;
@@ -35,11 +48,17 @@ class SecureTokenStore implements TokenStore {
   }
 
   async clear(): Promise<void> {
+    this.hadSessionAtLastClearFlag =
+      this.accessTokenCache !== null || (await getSecureItem(REFRESH_TOKEN_KEY)) !== null;
     this.accessTokenCache = null;
     await Promise.all([
       deleteSecureItem(ACCESS_TOKEN_KEY),
       deleteSecureItem(REFRESH_TOKEN_KEY),
     ]);
+  }
+
+  get hadSessionAtLastClear(): boolean {
+    return this.hadSessionAtLastClearFlag;
   }
 }
 
@@ -82,7 +101,18 @@ export function setUnauthenticatedHandler(handler: () => void): void {
 export const apiClient = new ApiClient({
   baseUrl: apiUrl,
   tokens: tokenStore,
-  onUnauthenticated: () => onUnauthenticated?.(),
+  /**
+   * `@try/api-client` appelle ceci sur tout 401 dont le refresh a échoué —
+   * y compris quand ce refresh a échoué faute de jeton, ce qui est l'état
+   * normal d'un visiteur qui n'a jamais eu de compte. Sans ce garde-fou,
+   * « Explorer sans compte » touchait sa première cloche de notification et
+   * se retrouvait éjecté vers l'écran de connexion : le défaut vécu le
+   * 27/08, tracé jusqu'ici. Seule une session qui existait vraiment avant ce
+   * clear() justifie de router vers la connexion.
+   */
+  onUnauthenticated: () => {
+    if (tokenStore.hadSessionAtLastClear) onUnauthenticated?.();
+  },
   clientInfo: { name: 'try-mobile', version: '0.1.0' },
 });
 

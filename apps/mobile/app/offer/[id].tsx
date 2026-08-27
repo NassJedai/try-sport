@@ -69,6 +69,13 @@ export default function OfferDetailScreen() {
       // than patch, because the server also moved capacity counters.
       void queryClient.invalidateQueries({ queryKey: queryKeys.offers.availability(id) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.bookings.all });
+      // La fiche elle-meme est perimee, pas seulement ses creneaux : reserver
+      // consomme l'allocation d'essai cote serveur, donc `viewerEligibility`
+      // vient de changer. Sans cette ligne, revenir en arriere affiche encore
+      // « Reserver mon essai » sur une offre deja essayee — le staleTime de
+      // 60 s (api/query-client.ts) tient la fiche pour fraiche puisqu'elle
+      // vient d'etre chargee. Constate au simulateur le 22 aout.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.offers.detail(id) });
 
       router.push({
         pathname: '/booking/[id]',
@@ -77,10 +84,25 @@ export default function OfferDetailScreen() {
     },
   });
 
+  /**
+   * `viewerEligibility` n'est `null` que pour un appelant anonyme — c'est le
+   * contrat même de l'API (`packages/contracts/src/schemas/offers.ts`) :
+   * « Null for anonymous callers, who see the offer but are asked to sign in
+   * at booking time. » Le mobile ne tenait pas cette promesse : rien
+   * n'empêchait un visiteur de choisir un créneau et de taper « Réserver »,
+   * pour buter sur un 401 de `POST /v1/bookings` (protégé, voir
+   * booking.controller.ts) sans explication.
+   */
+  const isAnonymousViewer = offerQuery.data?.viewerEligibility === null;
+
   const handleBook = useCallback(() => {
     if (!selectedSlot) return;
+    if (isAnonymousViewer) {
+      router.push('/(auth)/sign-in');
+      return;
+    }
     booking.mutate();
-  }, [booking, selectedSlot]);
+  }, [booking, isAnonymousViewer, router, selectedSlot]);
 
   if (offerQuery.isLoading) return <OfferDetailSkeleton />;
 
@@ -102,7 +124,7 @@ export default function OfferDetailScreen() {
 
   return (
     <View style={[styles.fill, { backgroundColor: theme.background }]}>
-      <ScrollView contentContainerStyle={{ paddingBottom: 140 }}>
+      <ScrollView contentContainerStyle={{ paddingTop: insets.top, paddingBottom: 140 }}>
         <View>
           {offer.gallery[0] ? (
             <Image
@@ -116,9 +138,14 @@ export default function OfferDetailScreen() {
           )}
 
           {/* Optimistic: the heart fills on tap and rolls back only if the
-              server rejects it. Safe here because favouriting costs nothing. */}
+              server rejects it. Safe here because favouriting costs nothing.
+              POST /v1/favorites/:id est protégé (favorite.controller.ts) — un
+              visiteur anonyme ne doit jamais voir le cœur se remplir puis se
+              vider sans explication ; on l'envoie se connecter directement. */}
           <Pressable
-            onPress={() => favorite.toggle(offer.isFavorite)}
+            onPress={() =>
+              isAnonymousViewer ? router.push('/(auth)/sign-in') : favorite.toggle(offer.isFavorite)
+            }
             accessibilityRole="switch"
             accessibilityState={{ checked: offer.isFavorite }}
             accessibilityLabel={
@@ -311,9 +338,11 @@ export default function OfferDetailScreen() {
             label={
               ineligible
                 ? 'Déjà essayé'
-                : selectedSlot
-                  ? 'Réserver mon essai'
-                  : 'Choisis un créneau'
+                : !selectedSlot
+                  ? 'Choisis un créneau'
+                  : isAnonymousViewer
+                    ? 'Se connecter pour réserver'
+                    : 'Réserver mon essai'
             }
             onPress={handleBook}
             disabled={ineligible || !selectedSlot}
@@ -322,7 +351,9 @@ export default function OfferDetailScreen() {
             accessibilityHint={
               ineligible
                 ? (offer.viewerEligibility?.message ?? undefined)
-                : 'Confirme ta réservation'
+                : isAnonymousViewer
+                  ? 'Ouvre l’écran de connexion pour finaliser ta réservation'
+                  : 'Confirme ta réservation'
             }
           />
         </View>

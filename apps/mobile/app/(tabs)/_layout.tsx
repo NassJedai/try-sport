@@ -56,7 +56,12 @@ export default function TabsLayout() {
           fontSize: typography.caption.fontSize,
         },
         tabBarLabel: ({ focused, color, children }) => (
-          <Text style={{ fontSize: typography.caption.fontSize, fontWeight: focused ? '800' : '500', color }}>
+          <Text
+            style={{ fontSize: typography.caption.fontSize, fontWeight: focused ? '800' : '500', color }}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.8}
+          >
             {children}
           </Text>
         ),

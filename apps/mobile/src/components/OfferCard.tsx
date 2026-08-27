@@ -151,7 +151,7 @@ export const OfferCard = memo(function OfferCard({ offer }: OfferCardProps) {
 
         {offer.nextSlotAt && (
           <Text style={[styles.nextSlot, { color: theme.textTertiary }]}>
-            Prochain créneau · {formatTimeInZone(new Date(offer.nextSlotAt), 'Europe/Brussels')}
+            Prochain créneau · {formatTimeInZone(new Date(offer.nextSlotAt), offer.venue.timeZone)}
           </Text>
         )}
       </View>
