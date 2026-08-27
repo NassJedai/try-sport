@@ -18,7 +18,7 @@
         "usesNonExemptEncryption": false
       },
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "TRIALYA utilise ta position pour te montrer les exp\u00e9riences sportives disponibles autour de toi.",
+        "NSLocationWhenInUseUsageDescription": "TRIALYA utilise ta position pour te montrer les expériences sportives disponibles autour de toi.",
         "UIBackgroundModes": []
       },
       "associatedDomains": [
@@ -59,9 +59,10 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "TRIALYA utilise ta position pour te montrer les exp\u00e9riences sportives disponibles autour de toi."
+          "locationWhenInUsePermission": "TRIALYA utilise ta position pour te montrer les expériences sportives disponibles autour de toi."
         }
-      ]
+      ],
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true

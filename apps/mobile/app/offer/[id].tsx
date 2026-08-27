@@ -79,7 +79,17 @@ export default function OfferDetailScreen() {
 
       router.push({
         pathname: '/booking/[id]',
-        params: { id: result.reservationId, created: '1' },
+        params: {
+          id: result.reservationId,
+          created: '1',
+          // Nul pour une offre gratuite : le paramètre est alors simplement
+          // absent, et l'écran de réservation garde son parcours actuel
+          // (confirmation immédiate, code d'entrée). Pour une offre payante,
+          // c'est la seule occasion de transmettre cette adresse — l'API ne
+          // la renvoie qu'à la création, jamais sur une relecture ultérieure
+          // de la réservation (voir le commentaire dans booking/[id].tsx).
+          ...(result.checkoutUrl ? { checkoutUrl: result.checkoutUrl } : {}),
+        },
       });
     },
   });
