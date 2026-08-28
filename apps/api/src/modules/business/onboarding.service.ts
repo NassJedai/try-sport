@@ -4,10 +4,14 @@ import {
   assertOfferTransition,
   assertVenueTransition,
   missingVenueSubmissionRequirements,
-  offerEditRefusalReason,
+  offerEditRefusalMessage,
+  offerTrialConfigurationIsCoherent,
   reviewOfferFieldEdits,
   reviewVenueFieldEdits,
   venueEditRefusalReason,
+  INCOHERENT_TRIAL_RULE_MESSAGE,
+  LOCKED_OFFER_FIELDS,
+  OFFER_LOCKED_FIELD_REASON,
   REJECTION_REASON_MIN_LENGTH,
   VENUE_SUBMISSION_REQUIREMENT_ACTIONS_FR,
 } from '@try/contracts';
@@ -17,6 +21,8 @@ import type {
   CreateBusinessDto,
   CreateOfferDto,
   CreateVenueDto,
+  ExperienceType,
+  TrialRule,
   UpdateOfferDto,
   UpdateVenueDto,
 } from '@try/contracts';
@@ -494,6 +500,24 @@ export class OnboardingService {
    * explicite plutôt que silencieux — un gérant qui envoie `currency` doit
    * savoir que ça n'a pas été pris en compte, pas le découvrir plus tard sur
    * une facture.
+   *
+   * Depuis le 2026-08-28, `verdict.notifyAdmin` n'est plus systématiquement
+   * vide : un champ `MODERATED` d'une offre `ACTIVE`/`PAUSED` s'écrit
+   * (`editable-fields.ts`), et `OfferModeratedFieldsChanged` en informe
+   * l'admin après coup — voir le commentaire sur cet événement dans
+   * `domain-events.ts` et `alertAdminOfOfferModeratedFieldsChange` dans
+   * `moderation-lifecycle.listener.ts`.
+   *
+   * **Corrigé le 2026-08-28** : `trialRule` et `experienceType` font partie
+   * des champs `MODERATED` désormais notifiés plutôt que gelés en ligne, donc
+   * `offerTrialConfigurationIsCoherent` est rappelée ici sur les valeurs
+   * FUSIONNÉES — exactement le même modèle que `referencePriceAmount >=
+   * priceAmount` juste en dessous. Sans ce rappel, un `FREE_TRIAL` en ligne
+   * pouvait passer en `trialRule: 'NO_RESTRICTION'` par ce PATCH (ou une offre
+   * au tarif normal passer en `FREE_TRIAL` sans changer sa règle d'essai), et
+   * rendre la séance découverte répétable à l'infini — la règle de plateforme
+   * « une seule séance découverte » sautait par un simple PATCH. Voir le
+   * commentaire sur `trialRule` dans `OFFER_FIELD_CLASS` (`editable-fields.ts`).
    */
   async updateOffer(input: {
     actor: AuthenticatedUser;
@@ -502,17 +526,24 @@ export class OnboardingService {
   }): Promise<BusinessOfferDto> {
     const dto = input.dto;
 
-    if ('currency' in dto) {
+    // Balayage de `LOCKED_OFFER_FIELDS` plutôt qu'un `'currency' in dto`
+    // écrit en dur : `editable-fields.ts` est la source unique de la liste
+    // des champs verrouillés — « l'API refuse ces clés avant même d'ouvrir
+    // sa transaction », dit son commentaire. Une seule clé verrouillée
+    // aujourd'hui (la devise), mais ce garde-fou n'a plus besoin d'être
+    // retouché si `editable-fields.ts` en verrouille un second demain.
+    const lockedFields = LOCKED_OFFER_FIELDS.filter((field) => field in dto);
+    if (lockedFields.length > 0) {
       throw new ApiException(
         'VALIDATION_FAILED',
-        'La devise ne peut pas être modifiée après la création de l’offre. Crée une nouvelle offre si elle doit changer.',
-        { currency: ['not editable'] },
+        OFFER_LOCKED_FIELD_REASON,
+        Object.fromEntries(lockedFields.map((field) => [field, ['not editable']])),
       );
     }
 
     const now = this.clock.now();
 
-    await this.db.transaction(async (tx) => {
+    const result = await this.db.transaction(async (tx) => {
       const [existing] = await tx
         .select()
         .from(schema.offers)
@@ -525,9 +556,16 @@ export class OnboardingService {
 
       const verdict = reviewOfferFieldEdits(existing.status, Object.keys(dto));
       if (verdict.forbidden.length > 0) {
-        throw new ApiException('CONFLICT', offerEditRefusalReason(existing.status) ?? undefined, {
-          fields: [...verdict.forbidden],
-        });
+        // `offerEditRefusalMessage`, pas `offerEditRefusalReason` seul : un
+        // champ verrouillé (la devise) prime sur la phrase du statut, y
+        // compris sur DRAFT/REJECTED où `offerEditRefusalReason` vaut `null`
+        // — voir le commentaire sur `offerEditRefusalMessage` dans
+        // `editable-fields.ts`.
+        throw new ApiException(
+          'CONFLICT',
+          offerEditRefusalMessage(existing.status, verdict.forbidden) ?? undefined,
+          { fields: [...verdict.forbidden] },
+        );
       }
 
       // Castés explicitement plutôt que laissés à l'inférence du ternaire :
@@ -554,13 +592,31 @@ export class OnboardingService {
         );
       }
 
-      await tx
+      // Même modèle, même raison : `experienceType` et `trialRule` peuvent
+      // chacun arriver seuls dans le PATCH (l'un des deux vient alors de la
+      // ligne existante), donc la cohérence ne se vérifie qu'après fusion —
+      // jamais sur le corps brut de la requête, qui n'a pas forcément les
+      // deux champs sous la main.
+      const experienceType =
+        'experienceType' in dto ? (dto.experienceType as ExperienceType) : existing.experienceType;
+      const trialRule = 'trialRule' in dto ? (dto.trialRule as TrialRule) : existing.trialRule;
+
+      if (!offerTrialConfigurationIsCoherent({ experienceType, trialRule })) {
+        throw new ApiException('VALIDATION_FAILED', INCOHERENT_TRIAL_RULE_MESSAGE, {
+          trialRule: ['incoherent with experienceType'],
+        });
+      }
+
+      const [updated] = await tx
         .update(schema.offers)
         .set({
           categoryId: 'categoryId' in dto ? dto.categoryId : existing.categoryId,
           title: 'title' in dto ? dto.title : existing.title,
           description: 'description' in dto ? dto.description : existing.description,
-          experienceType: 'experienceType' in dto ? dto.experienceType : existing.experienceType,
+          // Réutilise les valeurs fusionnées déjà calculées et validées
+          // ci-dessus — pas de second `'x' in dto ? … : …` qui pourrait diverger
+          // de ce que `offerTrialConfigurationIsCoherent` vient de vérifier.
+          experienceType,
           skillLevel: 'skillLevel' in dto ? dto.skillLevel : existing.skillLevel,
           priceAmount,
           referencePriceAmount,
@@ -581,20 +637,62 @@ export class OnboardingService {
           conditions: 'conditions' in dto ? (dto.conditions ?? null) : existing.conditions,
           cancellationPolicy:
             'cancellationPolicy' in dto ? dto.cancellationPolicy : existing.cancellationPolicy,
-          trialRule: 'trialRule' in dto ? dto.trialRule : existing.trialRule,
+          trialRule,
           updatedAt: now,
         })
-        .where(eq(schema.offers.id, input.offerId));
+        .where(eq(schema.offers.id, input.offerId))
+        .returning();
 
+      if (!updated) throw ApiException.notFound('offer', input.offerId);
+
+      // `existing` (relu avant l'UPDATE, sous verrou) et `updated` (rendu par
+      // le `RETURNING`) portent chacun une des deux moitiés dont l'alerte
+      // admin a besoin — voir le commentaire sur `identityChanges` dans
+      // `updateVenue` ci-dessus, même raisonnement, même coût nul.
+      //
+      // Filtré sur `oldValue !== newValue` : `verdict.notifyAdmin` liste les
+      // champs `MODERATED` *soumis*, pas ceux réellement changés — un gérant
+      // qui renvoie le même prix (formulaire soumis sans y toucher) ne doit
+      // ni alerter l'admin ni polluer l'audit d'un "changement" qui n'en est
+      // pas un.
+      const moderatedChanges = verdict.notifyAdmin
+        .map((field) => ({
+          field,
+          oldValue: existing[field as keyof typeof existing] as unknown,
+          newValue: updated[field as keyof typeof updated] as unknown,
+        }))
+        .filter((change) => change.oldValue !== change.newValue);
+
+      // Les valeurs avant/après, pas seulement les noms de champs : si
+      // `alertAdminOfOfferModeratedFieldsChange` échoue après ce commit, « le
+      // prix a bougé de combien » doit rester lisible dans `audit_logs` plutôt
+      // que de n'exister plus nulle part.
       await this.audit.record(tx, {
         actorId: input.actor.id,
         actorType: 'BUSINESS_MEMBER',
         action: 'offer.update',
         entityType: 'offer',
         entityId: input.offerId,
-        metadata: { fields: Object.keys(dto) },
+        metadata: {
+          fields: Object.keys(dto),
+          notifyAdmin: verdict.notifyAdmin,
+          changes: moderatedChanges,
+        },
       });
+
+      return { businessId: existing.businessId, moderatedChanges };
     });
+
+    // Émis après le commit, jamais dedans — même règle que `VenueIdentityChanged`
+    // ci-dessus (« Emit after COMMIT » dans domain-events.ts).
+    if (result.moderatedChanges.length > 0) {
+      this.events.emit('OfferModeratedFieldsChanged', {
+        offerId: input.offerId,
+        businessId: result.businessId,
+        actorId: input.actor.id,
+        changes: result.moderatedChanges,
+      });
+    }
 
     return this.loadBusinessOfferDto(input.offerId);
   }
@@ -739,6 +837,10 @@ export class OnboardingService {
         venueId: schema.offers.venueId,
         venueName: schema.venues.name,
         priceAmount: schema.offers.priceAmount,
+        // Voir le même commentaire dans `business.service.ts#listOffers` :
+        // requis par `BusinessOfferDto` depuis le 2026-08-28.
+        currency: schema.offers.currency,
+        referencePriceAmount: schema.offers.referencePriceAmount,
         durationMinutes: schema.offers.durationMinutes,
         capacity: schema.offers.capacity,
         rejectedReason: schema.offers.rejectedReason,

@@ -15,6 +15,7 @@ import {
   VENUE_SUBMISSION_REQUIREMENTS,
 } from '../venue-submission.js';
 import {
+  currencySchema,
   cursorPageSchema,
   cursorPaginationSchema,
   isoDateTimeSchema,
@@ -282,7 +283,9 @@ export type InviteMemberDto = z.infer<typeof inviteMemberSchema>;
  * Une offre vue par son propriétaire.
  *
  * Ce n'est pas la carte publique : le gérant voit aussi ce que le client ne
- * doit pas voir — le statut de modération, le motif de refus, la pause.
+ * doit pas voir — le statut de modération, le motif de refus, la pause. Et il
+ * voit les montants **tels qu'ils sont stockés**, sans le filtrage d'affichage
+ * que subit la fiche publique.
  */
 export const businessOfferSchema = z.object({
   id: uuidSchema,
@@ -291,6 +294,31 @@ export const businessOfferSchema = z.object({
   venueId: uuidSchema,
   venueName: z.string(),
   priceAmount: z.int().nonnegative(),
+  /**
+   * La devise de `priceAmount` et de `referencePriceAmount`, jamais supposée.
+   *
+   * Sans elle, le tableau de bord écrivait `formatMoney({ amount, currency:
+   * 'EUR' })` en dur (`apps/business/app/offers/page.tsx`) : juste à Bruxelles,
+   * faux au premier partenaire hors zone euro, et invisible jusque-là. Le
+   * montant et sa devise voyagent ensemble, comme partout ailleurs dans les
+   * contrats (`moneySchema`) ; ici séparément parce que le DTO porte deux
+   * montants qui partagent une seule devise — celle de l'offre, verrouillée
+   * après création (`LOCKED_OFFER_FIELDS`).
+   */
+  currency: currencySchema,
+  /**
+   * Le prix barré **brut**, tel qu'en base : `null` s'il n'y en a pas, sa valeur
+   * entière en unités mineures sinon.
+   *
+   * Ce n'est pas `offerDetailSchema.referencePrice`, qui est filtré *pour
+   * l'affichage public* — `offer.service.ts` le met à `null` dès qu'il n'est pas
+   * strictement supérieur au prix, pour ne pas afficher une fausse promotion.
+   * Le formulaire d'édition du gérant s'hydratait depuis ce champ filtré : un
+   * prix barré stocké égal au prix devenait invisible dans le formulaire, donc
+   * impossible à corriger *et* impossible à effacer, et le diff n'envoyait rien.
+   * Le gérant doit voir ce qui est enregistré, le client ce qui est vendable.
+   */
+  referencePriceAmount: z.int().nonnegative().nullable(),
   durationMinutes: z.int().positive(),
   capacity: z.int().positive(),
   rejectedReason: z.string().nullable(),

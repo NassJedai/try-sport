@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, expect, it } from 'vitest';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { schema } from '@try/database';
 import type { Clock } from '@try/utils';
 import type { Logger } from '@try/logger';
@@ -137,7 +137,10 @@ describeIfDatabase('inscription autonome — édition et soumission', () => {
         priceAmount: 0,
         durationMinutes: 60,
         capacity: 10,
-        trialRule: 'NO_RESTRICTION',
+        // `FREE_TRIAL` + `NO_RESTRICTION` est une combinaison que la production
+        // refuse (`offerTrialConfigurationIsCoherent`) : un défaut cohérent,
+        // les tests qui veulent l'incohérence la surchargent volontairement.
+        trialRule: 'ONE_TRIAL_PER_VENUE',
         ...overrides,
       })
       .returning();
@@ -338,6 +341,228 @@ describeIfDatabase('inscription autonome — édition et soumission', () => {
       .where(eq(schema.offers.id, offer.id));
     expect(persisted?.currency).toBe('EUR');
   });
+
+  it(
+    'un champ modéré change sur une offre ACTIVE → écrit et émet OfferModeratedFieldsChanged ' +
+      'avec les valeurs avant/après',
+    async () => {
+      const biz = await seedBusiness();
+      const venue = await seedVenue(biz.id, { status: 'ACTIVE' });
+      const category = await seedCategory();
+      const offer = await seedOffer(venue.id, biz.id, category.id, {
+        status: 'ACTIVE',
+        title: 'Essai découverte',
+        priceAmount: 1000,
+        referencePriceAmount: 1500,
+      });
+      cleanups.push(async () => {
+        await cleanupGraph({ businessId: biz.id, venueId: venue.id, categoryId: category.id });
+      });
+
+      const received: {
+        offerId: string;
+        businessId: string;
+        actorId: string;
+        changes: readonly { field: string; oldValue: unknown; newValue: unknown }[];
+      }[] = [];
+      events.on('OfferModeratedFieldsChanged', (payload) => {
+        received.push(payload);
+      });
+
+      const updated = await onboarding.updateOffer({
+        actor: actorFor(biz.id),
+        offerId: offer.id,
+        dto: { title: 'Nouveau titre suffisamment long', priceAmount: 1200 },
+      });
+
+      // L'écriture est passée malgré la mise en ligne : c'est tout le sens de
+      // NOTIFY_ADMIN plutôt que FORBIDDEN depuis le 2026-08-28.
+      expect(updated.title).toBe('Nouveau titre suffisamment long');
+      expect(updated.priceAmount).toBe(1200);
+
+      expect(received).toHaveLength(1);
+      expect(received[0]!.offerId).toBe(offer.id);
+      expect(received[0]!.businessId).toBe(biz.id);
+      expect(received[0]!.actorId).toBe(actorUserId);
+      // Valeur avant/après portée par l'événement, pas seulement le nom du champ.
+      expect(received[0]!.changes).toContainEqual({
+        field: 'title',
+        oldValue: 'Essai découverte',
+        newValue: 'Nouveau titre suffisamment long',
+      });
+      expect(received[0]!.changes).toContainEqual({
+        field: 'priceAmount',
+        oldValue: 1000,
+        newValue: 1200,
+      });
+    },
+  );
+
+  it(
+    "un PATCH qui change le prix laisse le couple avant/après dans audit_logs.metadata.changes " +
+      "— même si l'alerte admin échouait après ce commit, la trace resterait lisible",
+    async () => {
+      const biz = await seedBusiness();
+      const venue = await seedVenue(biz.id, { status: 'ACTIVE' });
+      const category = await seedCategory();
+      const offer = await seedOffer(venue.id, biz.id, category.id, {
+        status: 'ACTIVE',
+        priceAmount: 1000,
+        referencePriceAmount: 1500,
+      });
+      cleanups.push(async () => {
+        await cleanupGraph({ businessId: biz.id, venueId: venue.id, categoryId: category.id });
+      });
+
+      await onboarding.updateOffer({
+        actor: actorFor(biz.id),
+        offerId: offer.id,
+        dto: { priceAmount: 1200 },
+      });
+
+      const [log] = await db
+        .select({ metadata: schema.auditLogs.metadata })
+        .from(schema.auditLogs)
+        .where(
+          and(
+            eq(schema.auditLogs.entityType, 'offer'),
+            eq(schema.auditLogs.entityId, offer.id),
+            eq(schema.auditLogs.action, 'offer.update'),
+          ),
+        );
+
+      expect(log).toBeDefined();
+      const metadata = log!.metadata as {
+        changes?: { field: string; oldValue: unknown; newValue: unknown }[];
+      };
+      expect(metadata.changes).toContainEqual({
+        field: 'priceAmount',
+        oldValue: 1000,
+        newValue: 1200,
+      });
+    },
+  );
+
+  it("un champ libre seul, sur une offre ACTIVE, n'émet aucun événement", async () => {
+    const biz = await seedBusiness();
+    const venue = await seedVenue(biz.id, { status: 'ACTIVE' });
+    const category = await seedCategory();
+    const offer = await seedOffer(venue.id, biz.id, category.id, { status: 'ACTIVE' });
+    cleanups.push(async () => {
+      await cleanupGraph({ businessId: biz.id, venueId: venue.id, categoryId: category.id });
+    });
+
+    const received: unknown[] = [];
+    events.on('OfferModeratedFieldsChanged', (payload) => {
+      received.push(payload);
+    });
+
+    const updated = await onboarding.updateOffer({
+      actor: actorFor(biz.id),
+      offerId: offer.id,
+      dto: { capacity: 30 },
+    });
+
+    expect(updated.capacity).toBe(30);
+    expect(received).toHaveLength(0);
+  });
+
+  it('un champ modéré est refusé sur une offre en cours d’examen (PENDING_APPROVAL)', async () => {
+    const biz = await seedBusiness();
+    const venue = await seedVenue(biz.id);
+    const category = await seedCategory();
+    const offer = await seedOffer(venue.id, biz.id, category.id, { status: 'PENDING_APPROVAL' });
+    cleanups.push(async () => {
+      await cleanupGraph({ businessId: biz.id, venueId: venue.id, categoryId: category.id });
+    });
+
+    await expect(
+      onboarding.updateOffer({
+        actor: actorFor(biz.id),
+        offerId: offer.id,
+        dto: { title: 'Titre modifié pendant l’examen, refusé' },
+      }),
+    ).rejects.toMatchObject({ status: 409, code: 'CONFLICT' });
+
+    const [persisted] = await db
+      .select({ title: schema.offers.title })
+      .from(schema.offers)
+      .where(eq(schema.offers.id, offer.id));
+    // Le dossier ne bouge pas sous les yeux du modérateur qui l'examine.
+    expect(persisted?.title).toBe(offer.title);
+  });
+
+  it(
+    "la devise reste refusée même sur une offre ACTIVE, malgré l'assouplissement des autres " +
+      'champs modérés',
+    async () => {
+      const biz = await seedBusiness();
+      const venue = await seedVenue(biz.id, { status: 'ACTIVE' });
+      const category = await seedCategory();
+      const offer = await seedOffer(venue.id, biz.id, category.id, { status: 'ACTIVE' });
+      cleanups.push(async () => {
+        await cleanupGraph({ businessId: biz.id, venueId: venue.id, categoryId: category.id });
+      });
+
+      await expect(
+        onboarding.updateOffer({
+          actor: actorFor(biz.id),
+          offerId: offer.id,
+          dto: { currency: 'USD' } as never,
+        }),
+      ).rejects.toMatchObject({ status: 400, code: 'VALIDATION_FAILED' });
+
+      const [persisted] = await db
+        .select({ currency: schema.offers.currency })
+        .from(schema.offers)
+        .where(eq(schema.offers.id, offer.id));
+      expect(persisted?.currency).toBe('EUR');
+    },
+  );
+
+  it(
+    "si la transaction échoue (violation de contrainte), aucun champ n'est écrit et aucun " +
+      'événement n’est émis',
+    async () => {
+      const biz = await seedBusiness();
+      const venue = await seedVenue(biz.id, { status: 'ACTIVE' });
+      const category = await seedCategory();
+      const offer = await seedOffer(venue.id, biz.id, category.id, {
+        status: 'ACTIVE',
+        title: 'Titre avant échec',
+      });
+      cleanups.push(async () => {
+        await cleanupGraph({ businessId: biz.id, venueId: venue.id, categoryId: category.id });
+      });
+
+      const received: unknown[] = [];
+      events.on('OfferModeratedFieldsChanged', (payload) => {
+        received.push(payload);
+      });
+
+      // categoryId inconnu : la contrainte de clé étrangère fait échouer
+      // l'UPDATE, donc toute la transaction — y compris le changement de
+      // titre soumis dans le même PATCH.
+      await expect(
+        onboarding.updateOffer({
+          actor: actorFor(biz.id),
+          offerId: offer.id,
+          dto: {
+            title: 'Titre qui ne doit jamais être vu',
+            categoryId: '00000000-0000-0000-0000-000000000000',
+          },
+        }),
+      ).rejects.toThrow();
+
+      const [persisted] = await db
+        .select({ title: schema.offers.title })
+        .from(schema.offers)
+        .where(eq(schema.offers.id, offer.id));
+      expect(persisted?.title).toBe('Titre avant échec');
+      // Rien émis après COMMIT puisqu'il n'y a pas eu de COMMIT.
+      expect(received).toHaveLength(0);
+    },
+  );
 
   it('soumission d’un dossier incomplet → 409 listant les manques', async () => {
     const biz = await seedBusiness();

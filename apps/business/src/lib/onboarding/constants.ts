@@ -1,5 +1,5 @@
 import type { CancellationPolicy, Locale, SkillLevel, TrialRule, ExperienceType } from '@try/contracts';
-import { CANCELLATION_POLICY_DEFINITIONS } from '@try/contracts';
+import { CANCELLATION_POLICY_DEFINITIONS, EXPERIENCE_TYPE_LABELS_FR } from '@try/contracts';
 
 /**
  * Lundi → dimanche à l'écran — un gérant lit sa semaine ainsi, pas en commençant
@@ -25,26 +25,47 @@ export const MIN_OFFER_CAPACITY = 1;
 export const MAX_OFFER_CAPACITY = 500;
 
 /**
- * Libellés d'écran pour les sept types d'expérience — pure présentation, pas une
- * règle métier : le serveur ne se soucie que de la valeur `ExperienceType`
- * choisie, jamais de son libellé français.
+ * Options d'écran pour les sept types d'expérience. Le libellé de chacune
+ * vient de `EXPERIENCE_TYPE_LABELS_FR` (`@try/contracts`), pas d'un texte posé
+ * ici en dur : cette table le dit elle-même dans son commentaire — « Vocabulaire
+ * repris mot pour mot de `EXPERIENCE_TYPE_OPTIONS` » — et jusqu'ici cette
+ * promesse ne tenait que par une recopie manuelle jamais vérifiée, un
+ * renommage d'un côté pouvait diverger de l'autre sans qu'aucun test ne le
+ * voie. Seul le *hint* — qui vend le format plutôt que de le nommer — reste
+ * propre à cet écran.
  *
  * Avant ce chantier, seuls `FREE_TRIAL` et `DISCOVERY_PRICE` étaient jamais
  * envoyés (déduits du prix) — les cinq autres valeurs du contrat étaient
  * inatteignables depuis cet assistant.
  */
 export const EXPERIENCE_TYPE_OPTIONS: { value: ExperienceType; label: string; hint: string }[] = [
-  { value: 'FREE_TRIAL', label: 'Essai gratuit', hint: 'La séance découverte ne coûte rien.' },
+  { value: 'FREE_TRIAL', label: EXPERIENCE_TYPE_LABELS_FR.FREE_TRIAL, hint: 'La séance découverte ne coûte rien.' },
   {
     value: 'DISCOVERY_PRICE',
-    label: 'Prix découverte',
+    label: EXPERIENCE_TYPE_LABELS_FR.DISCOVERY_PRICE,
     hint: 'Un tarif réduit pour la toute première séance.',
   },
-  { value: 'DISCOVERY_PACK', label: 'Pack découverte', hint: 'Plusieurs séances à tarif réduit.' },
-  { value: 'INITIATION', label: 'Séance d’initiation', hint: 'Une introduction encadrée à l’activité.' },
-  { value: 'DAY_PASS', label: 'Pass journée', hint: 'Accès libre à la salle pour une journée.' },
-  { value: 'BEGINNER_CLASS', label: 'Cours débutant', hint: 'Un cours pensé pour les nouveaux venus.' },
-  { value: 'PREMIUM_EXPERIENCE', label: 'Expérience premium', hint: 'Une séance haut de gamme.' },
+  {
+    value: 'DISCOVERY_PACK',
+    label: EXPERIENCE_TYPE_LABELS_FR.DISCOVERY_PACK,
+    hint: 'Plusieurs séances à tarif réduit.',
+  },
+  {
+    value: 'INITIATION',
+    label: EXPERIENCE_TYPE_LABELS_FR.INITIATION,
+    hint: 'Une introduction encadrée à l’activité.',
+  },
+  { value: 'DAY_PASS', label: EXPERIENCE_TYPE_LABELS_FR.DAY_PASS, hint: 'Accès libre à la salle pour une journée.' },
+  {
+    value: 'BEGINNER_CLASS',
+    label: EXPERIENCE_TYPE_LABELS_FR.BEGINNER_CLASS,
+    hint: 'Un cours pensé pour les nouveaux venus.',
+  },
+  {
+    value: 'PREMIUM_EXPERIENCE',
+    label: EXPERIENCE_TYPE_LABELS_FR.PREMIUM_EXPERIENCE,
+    hint: 'Une séance haut de gamme.',
+  },
 ];
 
 /**

@@ -56,6 +56,7 @@ export default function AdminOverviewPage() {
       <nav className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-label="Sections">
         {[
           { href: '/moderation', title: 'Modération', body: 'Valider les lieux et les offres soumis.' },
+          { href: '/notifications', title: 'Alertes', body: 'Fiches et offres en ligne modifiées sans passer par la modération.' },
           { href: '/venues', title: 'Lieux & offres', body: 'Suspendre un lieu actif, le réintégrer, mettre une offre en pause.' },
           { href: '/users', title: 'Utilisateurs', body: 'Recherche par e-mail pour le support.' },
           { href: '/bookings', title: 'Réservations', body: 'Dernières réservations, par statut.' },

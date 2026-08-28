@@ -5,6 +5,7 @@ import type { Database } from '@try/database';
 import type { Clock } from '@try/utils';
 import type { Logger } from '@try/logger';
 import type { AppConfig } from '@try/config';
+import { formatMoney, money } from '@try/utils';
 import { AuditService } from '../src/modules/admin/audit.service.js';
 import { ModerationService } from '../src/modules/admin/moderation.service.js';
 import { DomainEvents } from '../src/modules/events/domain-events.js';
@@ -21,8 +22,9 @@ import { connect, describeIfDatabase, waitFor } from './integration-setup.js';
 /**
  * Ce que ces tests protègent : une décision de modération (lot 2 de
  * l'inscription autonome) prévient bien tout le monde, avec le bon contenu —
- * et une modification d'identité sur un lieu déjà en ligne alerte l'admin
- * avec de quoi agir, pas juste « quelque chose a changé ».
+ * et une modification d'identité sur un lieu déjà en ligne, ou d'un champ
+ * modéré sur une offre déjà en ligne, alerte l'admin avec de quoi agir, pas
+ * juste « quelque chose a changé ».
  */
 describeIfDatabase('cycle de vie de la modération', () => {
   function fakeLogger(): Logger {
@@ -90,6 +92,7 @@ describeIfDatabase('cycle de vie de la modération', () => {
    */
   async function seedBusinessWithMembers(): Promise<{
     businessId: string;
+    name: string;
     contactEmail: string;
     ownerUserId: string;
     managerUserId: string;
@@ -122,7 +125,15 @@ describeIfDatabase('cycle de vie de la modération', () => {
     const staffUserId = await seedUser('STAFF', true);
     const pendingOwnerUserId = await seedUser('OWNER', false);
 
-    return { businessId: business!.id, contactEmail, ownerUserId, managerUserId, staffUserId, pendingOwnerUserId };
+    return {
+      businessId: business!.id,
+      name: business!.name,
+      contactEmail,
+      ownerUserId,
+      managerUserId,
+      staffUserId,
+      pendingOwnerUserId,
+    };
   }
 
   async function seedVenue(
@@ -177,7 +188,10 @@ describeIfDatabase('cycle de vie de la modération', () => {
         priceAmount: 0,
         durationMinutes: 60,
         capacity: 10,
-        trialRule: 'NO_RESTRICTION',
+        // `FREE_TRIAL` + `NO_RESTRICTION` est une combinaison que la production
+        // refuse (`offerTrialConfigurationIsCoherent`) : un défaut cohérent,
+        // les tests qui veulent l'incohérence la surchargent volontairement.
+        trialRule: 'ONE_TRIAL_PER_VENUE',
         ...overrides,
       })
       .returning();
@@ -228,9 +242,16 @@ describeIfDatabase('cycle de vie de la modération', () => {
     return { moderation, transport };
   }
 
-  async function notificationsFor(userId: string): Promise<{ type: string; body: string; deepLink: string | null }[]> {
+  async function notificationsFor(
+    userId: string,
+  ): Promise<{ type: string; title: string; body: string; deepLink: string | null }[]> {
     return db
-      .select({ type: schema.notifications.type, body: schema.notifications.body, deepLink: schema.notifications.deepLink })
+      .select({
+        type: schema.notifications.type,
+        title: schema.notifications.title,
+        body: schema.notifications.body,
+        deepLink: schema.notifications.deepLink,
+      })
       .from(schema.notifications)
       .where(eq(schema.notifications.userId, userId));
   }
@@ -406,6 +427,296 @@ describeIfDatabase('cycle de vie de la modération', () => {
       // Le membre qui a fait la modification n'a pas à s'auto-notifier.
       const managerNotifs = await notificationsFor(biz.managerUserId);
       expect(managerNotifs.filter((n) => n.type === 'VENUE_IDENTITY_CHANGED')).toHaveLength(0);
+    },
+  );
+
+  it(
+    "modification d'un champ modéré sur une offre déjà en ligne → alerte admin en application, " +
+      "avec un montant formaté (jamais l'entier brut), la règle d'essai en clair, et le nom du " +
+      "lieu et de l'établissement pour agir sans fouiller la base",
+    async () => {
+      const biz = await seedBusinessWithMembers();
+      const venue = await seedVenue(biz.businessId, { status: 'ACTIVE' });
+      const categoryId = await seedCategory();
+      // `DAY_PASS` : un type d'expérience qui ne porte pas de tarif découverte
+      // (`carriesDiscoveryPrice`), donc `trialRule: 'NO_RESTRICTION'` y est une
+      // configuration cohérente — contrairement à `FREE_TRIAL`, qui la
+      // refuserait désormais (`offerTrialConfigurationIsCoherent`, revalidée
+      // par `updateOffer` depuis le 2026-08-28). Ce test prouve l'alerte admin
+      // sur un champ modéré ordinaire ; le refus d'un `trialRule` incohérent a
+      // ses propres tests juste en dessous.
+      const offer = await seedOffer(venue.id, biz.businessId, categoryId, {
+        status: 'ACTIVE',
+        title: 'Essai découverte',
+        experienceType: 'DAY_PASS',
+        priceAmount: 1000,
+        referencePriceAmount: 1500,
+        trialRule: 'ONE_TRIAL_PER_VENUE',
+      });
+      const [admin] = await db
+        .insert(schema.users)
+        .values({ email: `admin-${Math.random().toString(36).slice(2)}@try.local`, role: 'ADMIN' })
+        .returning();
+      pushCleanup({
+        businessId: biz.businessId,
+        venueId: venue.id,
+        offerId: offer.id,
+        categoryId,
+        userIds: [biz.ownerUserId, biz.managerUserId, biz.staffUserId, biz.pendingOwnerUserId, admin!.id],
+      });
+
+      const events = new DomainEvents(fakeLogger());
+      const audit = new AuditService(db);
+      const onboarding = new OnboardingService(db, clock, audit, events);
+      const transport = new RecordingTransport();
+      const notifications = new NotificationService(transport, fakeLogger(), fakeConfig);
+      const listener = new ModerationLifecycleListener(events, notifications, db, fakeConfig, fakeLogger());
+      listener.onModuleInit();
+
+      await onboarding.updateOffer({
+        actor: actorFor(biz.businessId, biz.managerUserId),
+        offerId: offer.id,
+        dto: { priceAmount: 1200, trialRule: 'NO_RESTRICTION' },
+      });
+
+      await waitFor(async () => (await notificationsFor(admin!.id)).length > 0);
+      const [alert] = await notificationsFor(admin!.id);
+
+      expect(alert!.type).toBe('OFFER_MODERATED_FIELDS_CHANGED');
+      expect(alert!.title).toContain(offer.title);
+      // Changement de règle du 2026-08-28 : le nom du lieu rejoint le titre,
+      // sans quoi l'admin ne sait pas OÙ agir avant même de savoir quoi faire.
+      expect(alert!.title).toContain(venue.name);
+      // Et celui de l'établissement dans le corps — jointure déjà faite pour
+      // le lieu, donc sans coût supplémentaire.
+      expect(alert!.body).toContain(venue.name);
+      expect(alert!.body).toContain(biz.name);
+
+      // Montant rendu par `formatMoney`, jamais l'entier en unités mineures
+      // lu tel quel — "1000 → 1200" serait un piège à erreur de lecture.
+      const oldPrice = formatMoney(money(1000, 'EUR'));
+      const newPrice = formatMoney(money(1200, 'EUR'));
+      expect(alert!.body).toContain(
+        `Prix de la séance découverte : « ${oldPrice} » → « ${newPrice} »`,
+      );
+      // `trialRule` en clair, pas son identifiant technique brut.
+      expect(alert!.body).toContain('Règle d’essai : « Un essai par salle » → « Pas de limite »');
+
+      // Le membre qui a fait la modification n'a pas à s'auto-notifier.
+      const managerNotifs = await notificationsFor(biz.managerUserId);
+      expect(managerNotifs.filter((n) => n.type === 'OFFER_MODERATED_FIELDS_CHANGED')).toHaveLength(0);
+    },
+  );
+
+  it(
+    "changement de catégorie sur une offre déjà en ligne → l'alerte admin porte le NOM de la " +
+      'catégorie (avant et après), jamais son UUID brut',
+    async () => {
+      const biz = await seedBusinessWithMembers();
+      const venue = await seedVenue(biz.businessId, { status: 'ACTIVE' });
+      const oldCategoryId = await seedCategory();
+      const [newCategoryRow] = await db
+        .insert(schema.categories)
+        .values({ slug: `cat-${Math.random().toString(36).slice(2, 10)}`, name: 'Nouvelle Catégorie' })
+        .returning();
+      const offer = await seedOffer(venue.id, biz.businessId, oldCategoryId, {
+        status: 'ACTIVE',
+        experienceType: 'DAY_PASS',
+        priceAmount: 1000,
+        trialRule: 'NO_RESTRICTION',
+      });
+      const [admin] = await db
+        .insert(schema.users)
+        .values({ email: `admin-${Math.random().toString(36).slice(2)}@try.local`, role: 'ADMIN' })
+        .returning();
+      // Poussé AVANT `pushCleanup` : `cleanups` se dépile en LIFO
+      // (`afterEach` fait `pop()`), donc ce nettoyage-ci doit s'exécuter
+      // APRÈS celui de `pushCleanup` — qui supprime l'offre — puisque le
+      // PATCH ci-dessous fait pointer `offer.category_id` vers
+      // `newCategoryRow`, pas vers `oldCategoryId`. Le supprimer avant
+      // l'offre violerait la contrainte de clé étrangère.
+      cleanups.push(async () => {
+        await db.execute(sql`DELETE FROM categories WHERE id = ${newCategoryRow!.id}`);
+      });
+      pushCleanup({
+        businessId: biz.businessId,
+        venueId: venue.id,
+        offerId: offer.id,
+        categoryId: oldCategoryId,
+        userIds: [biz.ownerUserId, biz.managerUserId, biz.staffUserId, biz.pendingOwnerUserId, admin!.id],
+      });
+
+      const events = new DomainEvents(fakeLogger());
+      const audit = new AuditService(db);
+      const onboarding = new OnboardingService(db, clock, audit, events);
+      const transport = new RecordingTransport();
+      const notifications = new NotificationService(transport, fakeLogger(), fakeConfig);
+      const listener = new ModerationLifecycleListener(events, notifications, db, fakeConfig, fakeLogger());
+      listener.onModuleInit();
+
+      await onboarding.updateOffer({
+        actor: actorFor(biz.businessId, biz.managerUserId),
+        offerId: offer.id,
+        dto: { categoryId: newCategoryRow!.id },
+      });
+
+      await waitFor(async () => (await notificationsFor(admin!.id)).length > 0);
+      const [alert] = await notificationsFor(admin!.id);
+
+      // Le nom, pas l'UUID — le libellé du champ vient de `offerFieldLabelFr`.
+      expect(alert!.body).toContain('Catégorie : « Test Category » → « Nouvelle Catégorie »');
+      expect(alert!.body).not.toContain(oldCategoryId);
+      expect(alert!.body).not.toContain(newCategoryRow!.id);
+    },
+  );
+
+  /**
+   * Le filtre d'idempotence de `updateOffer` (`moderatedChanges` ne garde que
+   * ce qui a réellement changé, voir onboarding.service.ts) protège aussi
+   * cette alerte : un gérant qui renvoie son formulaire sans y toucher ne
+   * doit ni polluer les notifications de l'admin ni émettre l'événement qui
+   * les produit.
+   */
+  it(
+    'un PATCH qui soumet une valeur STRICTEMENT identique à celle en base ' +
+      "n'émet aucun événement OfferModeratedFieldsChanged ni notification admin",
+    async () => {
+      const biz = await seedBusinessWithMembers();
+      const venue = await seedVenue(biz.businessId, { status: 'ACTIVE' });
+      const categoryId = await seedCategory();
+      const offer = await seedOffer(venue.id, biz.businessId, categoryId, {
+        status: 'ACTIVE',
+        priceAmount: 1000,
+      });
+      const [admin] = await db
+        .insert(schema.users)
+        .values({ email: `admin-${Math.random().toString(36).slice(2)}@try.local`, role: 'ADMIN' })
+        .returning();
+      pushCleanup({
+        businessId: biz.businessId,
+        venueId: venue.id,
+        offerId: offer.id,
+        categoryId,
+        userIds: [biz.ownerUserId, biz.managerUserId, biz.staffUserId, biz.pendingOwnerUserId, admin!.id],
+      });
+
+      const events = new DomainEvents(fakeLogger());
+      const audit = new AuditService(db);
+      const onboarding = new OnboardingService(db, clock, audit, events);
+      const transport = new RecordingTransport();
+      const notifications = new NotificationService(transport, fakeLogger(), fakeConfig);
+      const listener = new ModerationLifecycleListener(events, notifications, db, fakeConfig, fakeLogger());
+      listener.onModuleInit();
+
+      const received: unknown[] = [];
+      events.on('OfferModeratedFieldsChanged', (payload) => {
+        received.push(payload);
+      });
+
+      // `priceAmount` soumis, mais strictement identique à ce qui est déjà en
+      // base : ni un abus (rien n'a réellement bougé) ni un signal utile pour
+      // l'admin.
+      const updated = await onboarding.updateOffer({
+        actor: actorFor(biz.businessId, biz.managerUserId),
+        offerId: offer.id,
+        dto: { priceAmount: 1000 },
+      });
+
+      expect(updated.priceAmount).toBe(1000);
+      // Rien émis : aucun abonné n'a même eu l'occasion de réagir.
+      expect(received).toHaveLength(0);
+
+      // Rien inséré non plus, côté base — pas seulement « pas encore » :
+      // l'écriture ayant déjà eu lieu de façon synchrone dans `updateOffer`,
+      // il n'y a rien à attendre ici.
+      const adminNotifs = await notificationsFor(admin!.id);
+      expect(adminNotifs).toHaveLength(0);
+    },
+  );
+
+  /**
+   * Le bloquant que ce lot referme : depuis que `trialRule` et
+   * `experienceType` sont modifiables en ligne (`NOTIFY_ADMIN` plutôt que
+   * `FORBIDDEN`), `updateOffer` doit rejouer `offerTrialConfigurationIsCoherent`
+   * sur les valeurs FUSIONNÉES avant d'écrire — exactement comme il revalide
+   * déjà `referencePriceAmount >= priceAmount`. Les deux directions comptent :
+   * desserrer la règle d'un essai déjà `FREE_TRIAL`, et faire passer une offre
+   * au tarif normal en `FREE_TRIAL` sans resserrer sa règle d'essai.
+   */
+  it(
+    'un PATCH ne peut pas desserrer trialRule en NO_RESTRICTION sur une offre FREE_TRIAL déjà en ligne',
+    async () => {
+      const biz = await seedBusinessWithMembers();
+      const venue = await seedVenue(biz.businessId, { status: 'ACTIVE' });
+      const categoryId = await seedCategory();
+      const offer = await seedOffer(venue.id, biz.businessId, categoryId, {
+        status: 'ACTIVE',
+        experienceType: 'FREE_TRIAL',
+        priceAmount: 0,
+        trialRule: 'ONE_TRIAL_PER_VENUE',
+      });
+      pushCleanup({
+        businessId: biz.businessId,
+        venueId: venue.id,
+        offerId: offer.id,
+        categoryId,
+        userIds: [biz.ownerUserId, biz.managerUserId, biz.staffUserId, biz.pendingOwnerUserId],
+      });
+
+      const onboarding = new OnboardingService(db, clock, new AuditService(db), new DomainEvents(fakeLogger()));
+
+      await expect(
+        onboarding.updateOffer({
+          actor: actorFor(biz.businessId, biz.managerUserId),
+          offerId: offer.id,
+          dto: { trialRule: 'NO_RESTRICTION' },
+        }),
+      ).rejects.toMatchObject({ status: 400, code: 'VALIDATION_FAILED' });
+
+      const [persisted] = await db
+        .select({ trialRule: schema.offers.trialRule })
+        .from(schema.offers)
+        .where(eq(schema.offers.id, offer.id));
+      expect(persisted?.trialRule).toBe('ONE_TRIAL_PER_VENUE');
+    },
+  );
+
+  it(
+    "un PATCH ne peut pas faire passer une offre en FREE_TRIAL sans resserrer un trialRule déjà " +
+      'NO_RESTRICTION',
+    async () => {
+      const biz = await seedBusinessWithMembers();
+      const venue = await seedVenue(biz.businessId, { status: 'ACTIVE' });
+      const categoryId = await seedCategory();
+      const offer = await seedOffer(venue.id, biz.businessId, categoryId, {
+        status: 'ACTIVE',
+        experienceType: 'DAY_PASS',
+        priceAmount: 1000,
+        trialRule: 'NO_RESTRICTION',
+      });
+      pushCleanup({
+        businessId: biz.businessId,
+        venueId: venue.id,
+        offerId: offer.id,
+        categoryId,
+        userIds: [biz.ownerUserId, biz.managerUserId, biz.staffUserId, biz.pendingOwnerUserId],
+      });
+
+      const onboarding = new OnboardingService(db, clock, new AuditService(db), new DomainEvents(fakeLogger()));
+
+      await expect(
+        onboarding.updateOffer({
+          actor: actorFor(biz.businessId, biz.managerUserId),
+          offerId: offer.id,
+          dto: { experienceType: 'FREE_TRIAL' },
+        }),
+      ).rejects.toMatchObject({ status: 400, code: 'VALIDATION_FAILED' });
+
+      const [persisted] = await db
+        .select({ experienceType: schema.offers.experienceType })
+        .from(schema.offers)
+        .where(eq(schema.offers.id, offer.id));
+      expect(persisted?.experienceType).toBe('DAY_PASS');
     },
   );
 });

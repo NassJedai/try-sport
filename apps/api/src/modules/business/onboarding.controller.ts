@@ -135,7 +135,9 @@ export class OnboardingController {
   }
 
   @Patch('offers/:id')
-  @ApiOperation({ summary: "Update an offer's own fields; moderated fields are frozen once live" })
+  @ApiOperation({
+    summary: "Update an offer's own fields; moderated fields on a live offer notify admin, currency is locked",
+  })
   updateOffer(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ZodValidationPipe(uuidSchema)) offerId: string,

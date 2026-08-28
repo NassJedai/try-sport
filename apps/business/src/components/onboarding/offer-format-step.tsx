@@ -1,7 +1,12 @@
 'use client';
 
 import type { CancellationPolicy, ExperienceType, Locale, OfferStatus, SkillLevel, TrialRule } from '@try/contracts';
-import { canEditOfferField, offerEditRefusalReason, offerTrialConfigurationIsCoherent } from '@try/contracts';
+import {
+  offerEditRefusalReason,
+  offerFieldEditDecision,
+  offerTrialConfigurationIsCoherent,
+} from '@try/contracts';
+import { validateRequiredPositivePriceField } from '@/lib/onboarding/price-field';
 import { CapacityStepper } from './capacity-stepper';
 import {
   CANCELLATION_POLICY_OPTIONS,
@@ -38,12 +43,18 @@ export function OfferFormatStep({
   onCancellationPolicyChange,
   /**
    * Statut de l'offre en cours d'édition — `null` en création, où
-   * `trialRule` est toujours modifiable (l'assistant crée en `DRAFT`). Une
-   * offre `ACTIVE`/`PAUSED`/`PENDING_APPROVAL` gèle ce champ : voir
-   * `editable-fields.ts`. Aujourd'hui l'assistant ne peut de toute façon pas
-   * rouvrir une offre dans cet état (`resolveResumePoint` redirige vers le
-   * tableau de bord avant) — ce garde-fou est une seconde ligne de défense,
-   * pas la première.
+   * `trialRule` est toujours modifiable (l'assistant crée en `DRAFT`).
+   *
+   * Depuis le 2026-08-28, `editable-fields.ts` ne gèle plus ce champ sur une
+   * offre `ACTIVE`/`PAUSED` : l'écriture passe, et l'équipe TRIALYA est
+   * simplement notifiée après coup (`NOTIFY_ADMIN`). Seule `PENDING_APPROVAL`
+   * le gèle encore (`FORBIDDEN` — un dossier ne bouge pas sous les yeux du
+   * modérateur). Aujourd'hui l'assistant ne peut de toute façon pas rouvrir
+   * une offre déjà en ligne ou en file d'attente (`resolveResumePoint`
+   * redirige vers le tableau de bord avant) — ce garde-fou reste une seconde
+   * ligne de défense, pas la première ; la première, pour une offre déjà en
+   * ligne, est désormais `apps/business/app/offers/page.tsx`
+   * (`OfferEditForm`).
    */
   offerStatus,
   fieldErrors,
@@ -81,10 +92,24 @@ export function OfferFormatStep({
 }) {
   // Un prix strictement positif est demandé côté saisie quand « Payant » est
   // choisi ; 0€ payant n'a pas de sens pour l'utilisateur, même si le serveur
-  // l'accepterait techniquement.
-  const priceLooksValid = !isPaid || (price.trim() !== '' && Number(price.replace(',', '.')) > 0);
+  // l'accepterait techniquement. La seule autorité sur ce qu'est un prix
+  // valide est `parseDecimalToMinor`, via `validateRequiredPositivePriceField`
+  // — plus de `Number(price.replace(',', '.')) > 0` maison, qui ne
+  // remplaçait que la première virgule d'une saisie comme « 1,234,50 » et
+  // grisait le bouton sans un mot d'explication (même trou que celui corrigé
+  // sur `OfferEditForm`, apps/business/src/components/offers/offer-edit-form.tsx).
+  //
+  // `'EUR'` en dur : même choix que `parseOfferPrices` dans la page qui
+  // porte cet assistant (`apps/business/app/onboarding/page.tsx`) — une seule
+  // devise au lancement, pas une décision prise ici.
+  const priceValidation = isPaid ? validateRequiredPositivePriceField(price, 'EUR') : { amount: 0, error: null };
+  const priceLooksValid = !isPaid || priceValidation.amount !== null;
 
-  const trialRuleLocked = Boolean(offerStatus) && !canEditOfferField(offerStatus as OfferStatus, 'trialRule');
+  // `null` en création (pas de statut => rien à interroger) : le champ est
+  // alors toujours modifiable, comme avant ce chantier.
+  const trialRuleDecision = offerStatus ? offerFieldEditDecision(offerStatus, 'trialRule') : 'ALLOWED';
+  const trialRuleLocked = trialRuleDecision === 'FORBIDDEN';
+  const trialRuleNotifiesAdmin = trialRuleDecision === 'NOTIFY_ADMIN';
   const trialRuleLockReason = offerStatus ? offerEditRefusalReason(offerStatus) : null;
 
   /**
@@ -165,7 +190,7 @@ export function OfferFormatStep({
                 placeholder="8"
                 className="mt-1 min-h-12 w-full rounded-card border border-border bg-surface px-4"
               />
-              <FieldErrorText message={fieldErrors.priceAmount?.[0]} />
+              <FieldErrorText message={fieldErrors.priceAmount?.[0] ?? priceValidation.error ?? undefined} />
             </div>
             <div>
               <label htmlFor="orefprice" className="text-sm font-semibold">
@@ -227,6 +252,12 @@ export function OfferFormatStep({
         {trialRuleLocked && trialRuleLockReason && (
           <p role="alert" className="mt-2 rounded-card bg-surface-muted p-3 text-sm text-text-secondary">
             {trialRuleLockReason}
+          </p>
+        )}
+        {trialRuleNotifiesAdmin && (
+          <p role="status" className="mt-2 rounded-card bg-accent-subtle p-3 text-sm text-accent-text">
+            Cette offre est en ligne : tu peux encore changer qui a droit à ce tarif, sans nouvelle
+            validation — l’équipe TRIALYA est simplement informée de chaque changement.
           </p>
         )}
         <div className="mt-2 flex flex-col gap-2">

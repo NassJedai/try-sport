@@ -246,9 +246,39 @@ export function createEndpoints(client: ApiClient) {
     },
 
     notifications: {
-      list: (unreadOnly = false) =>
-        client.get<{ items: NotificationDto[]; unreadCount: number }>('/v1/notifications', {
-          query: { unreadOnly: unreadOnly ? 'true' : undefined },
+      /**
+       * `unreadOnly` reste un premier paramètre positionnel, pas un objet : les
+       * deux appelants mobile (`apps/mobile/app/notifications.tsx`,
+       * `NotificationBell.tsx`) l'appellent déjà `list()` / `list(true)`, et
+       * cette signature doit rester valable sans les toucher.
+       *
+       * `pagination.cursor`/`pagination.limit` reprennent les mêmes noms que
+       * `admin.payments()` et `admin.venues()` ci-dessous — même curseur
+       * d'ensemble ordonné, pas un numéro de page — pour que la console admin
+       * (`apps/admin/app/notifications/page.tsx`, « Charger plus ») consomme
+       * cette liste comme elle consomme déjà celles-là.
+       *
+       * `nextCursor`/`total` dans la réponse suivent le même motif — et
+       * suivent la forme exacte de `PaginatedNotificationListDto`
+       * (`apps/api/src/modules/notifications/notification.controller.ts`,
+       * livrée en parallèle de ce client). Le type reste redéclaré ici plutôt
+       * qu'importé : comme `AdminPaymentDto`/`AdminVenueDto` ci-dessus, cette
+       * forme n'existe pas encore dans `@try/contracts`
+       * (`notificationListSchema` n'a toujours que `items`/`unreadCount`) et
+       * se synchronise à la main en attendant.
+       */
+      list: (unreadOnly = false, pagination?: { cursor?: string; limit?: number }) =>
+        client.get<{
+          items: NotificationDto[];
+          unreadCount: number;
+          nextCursor: string | null;
+          total: number;
+        }>('/v1/notifications', {
+          query: {
+            unreadOnly: unreadOnly ? 'true' : undefined,
+            cursor: pagination?.cursor,
+            limit: pagination?.limit,
+          },
         }),
 
       markRead: (notificationId: string) =>

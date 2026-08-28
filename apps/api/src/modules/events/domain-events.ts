@@ -136,6 +136,37 @@ export interface DomainEventMap {
     changes: readonly { field: string; oldValue: unknown; newValue: unknown }[];
   };
   /**
+   * Un champ `MODERATED` (prix, prix de référence, titre, description,
+   * catégorie, type d'expérience, durée, règle d'essai…) vient de changer sur
+   * une offre déjà en ligne (`ACTIVE`/`PAUSED`) — voir `editable-fields.ts`.
+   * Depuis le 2026-08-28, `OFFER_EDIT_POLICY` laisse ces champs passer en
+   * `NOTIFY_ADMIN` plutôt que `FORBIDDEN` sur ces deux statuts : l'écriture
+   * est déjà passée, ce n'est jamais une décision, c'est une notification —
+   * exactement le raisonnement de `VenueIdentityChanged`, appliqué ici à la
+   * classe `MODERATED` d'une offre plutôt qu'à la classe `IDENTITY` d'un lieu.
+   * Émis par `OnboardingService.updateOffer`, après commit.
+   *
+   * Porte la valeur avant/après de chaque champ réellement soumis et notifié
+   * — pas seulement son nom. `updateOffer` relit déjà la ligne existante sous
+   * verrou pour sa fusion et récupère la ligne mise à jour via `RETURNING` :
+   * les deux valeurs sont déjà en main au moment d'émettre.
+   *
+   * `priceAmount`/`referencePriceAmount` sont en unités mineures entières —
+   * à formater côté consommateur avec `@try/utils` (`formatMoney`), jamais en
+   * lisant `newValue`/`oldValue` bruts dans un message.
+   */
+  OfferModeratedFieldsChanged: {
+    offerId: string;
+    businessId: string;
+    /** Qui a fait le changement — un membre du gérant, jamais le système. */
+    actorId: string;
+    /**
+     * Uniquement les champs `MODERATED` réellement soumis dans cette requête
+     * pour lesquels le statut de l'offre notifie l'admin (`verdict.notifyAdmin`).
+     */
+    changes: readonly { field: string; oldValue: unknown; newValue: unknown }[];
+  };
+  /**
    * Décision de modération admin sur un lieu — approbation, refus, suspension,
    * réintégration. Émis par `ModerationService.decideVenue` (lot 2), pas ici :
    * ce fichier ne fait que déclarer la forme que le lot 2 doit respecter.

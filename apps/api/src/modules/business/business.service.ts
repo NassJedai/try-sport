@@ -345,6 +345,14 @@ export class BusinessService {
         venueId: schema.offers.venueId,
         venueName: schema.venues.name,
         priceAmount: schema.offers.priceAmount,
+        // `currency` et `referencePriceAmount` sont requis par `BusinessOfferDto`
+        // depuis le 2026-08-28 (voir `packages/contracts/src/schemas/business.ts`) :
+        // le tableau de bord n'a plus le droit de supposer EUR, et le prix barré
+        // brut doit rester corrigeable même quand il est égal au prix affiché
+        // (`offerDetailSchema.referencePrice`, lui, le filtre pour l'affichage
+        // public — ce n'est pas ce DTO gérant).
+        currency: schema.offers.currency,
+        referencePriceAmount: schema.offers.referencePriceAmount,
         durationMinutes: schema.offers.durationMinutes,
         capacity: schema.offers.capacity,
         rejectedReason: schema.offers.rejectedReason,

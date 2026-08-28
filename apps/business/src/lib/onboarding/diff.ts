@@ -66,7 +66,15 @@ export interface OfferFormValues {
   categoryId: string;
   experienceType: ExperienceType;
   priceAmount: number;
-  referencePriceAmount: number | null;
+  /**
+   * `undefined` — pas `null` — veut dire « le champ prix habituel n'est pas
+   * rendu dans l'état courant du formulaire » : `OfferEditForm` cache ses deux
+   * champs de prix quand l'offre est « Gratuit » (`{isPaid && (…)}`), et
+   * `null` est déjà pris (« champ vide, pas de prix barré », un choix
+   * explicite du gérant quand le champ EST visible). Voir le commentaire de
+   * `diffOfferPatch` plus bas pour le bug que cette distinction corrige.
+   */
+  referencePriceAmount: number | null | undefined;
   durationMinutes: number;
   capacity: number;
   trialRule: TrialRule;
@@ -80,6 +88,26 @@ export interface OfferFormValues {
  * `GET /v1/businesses/:id/offers` : cette dernière n'expose ni description, ni
  * catégorie, ni type d'expérience, ni prix habituel — de quoi comparer un
  * sous-ensemble des champs et effacer les autres en silence.
+ *
+ * Root cause d'un bug constaté sur une offre ACTIVE gratuite (`priceAmount: 0`)
+ * portant un prix barré en base (`referencePriceAmount: 2200` — la fiche
+ * publique affiche « 19 € barré → Gratuit », un état produit normal). Le
+ * gérant ouvre l'édition, ne touche que le titre, enregistre : `isPaid` étant
+ * faux, `OfferEditForm` ne rend ni le champ prix découverte ni le champ prix
+ * habituel, et calculait leur validation à `{ amount: null, error: null }` —
+ * la même valeur qu'un champ vide *visible* que le gérant aurait délibérément
+ * effacé. `diffOfferPatch` comparait ce `null` à l'original (`2200`), voyait
+ * une différence, et envoyait `referencePriceAmount: null` : le prix barré
+ * disparaissait de la base sans qu'aucun geste du gérant ne l'ait demandé.
+ *
+ * La règle qui corrige ça à la racine, pas en pansement : un champ de prix
+ * n'entre dans le patch que si (a) il était rendu dans cet état du formulaire
+ * — signalé par `undefined`, jamais `null` — et (b) sa valeur parsée diffère
+ * de l'originale. `priceAmount` n'a pas besoin de cette même garde : contrairement
+ * au prix habituel, sa valeur reste bien définie même quand son champ de saisie
+ * est masqué — le bouton « Gratuit », toujours visible, la fixe alors à `0` de
+ * façon déterministe, ce qui est le comportement voulu (Payant → Gratuit doit
+ * bien envoyer `priceAmount: 0`).
  */
 export function diffOfferPatch(
   original: OfferDetailDto,
@@ -92,8 +120,10 @@ export function diffOfferPatch(
   if (changed(original.category.id, next.categoryId)) patch.categoryId = next.categoryId;
   if (changed(original.experienceType, next.experienceType)) patch.experienceType = next.experienceType;
   if (changed(original.price.amount, next.priceAmount)) patch.priceAmount = next.priceAmount;
-  if (changed(original.referencePrice?.amount ?? null, next.referencePriceAmount)) {
-    patch.referencePriceAmount = next.referencePriceAmount;
+  if (next.referencePriceAmount !== undefined) {
+    if (changed(original.referencePrice?.amount ?? null, next.referencePriceAmount)) {
+      patch.referencePriceAmount = next.referencePriceAmount;
+    }
   }
   if (changed(original.durationMinutes, next.durationMinutes)) patch.durationMinutes = next.durationMinutes;
   if (changed(original.capacity, next.capacity)) patch.capacity = next.capacity;
