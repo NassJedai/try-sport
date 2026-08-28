@@ -59,19 +59,28 @@ export function Skeleton({ width = '100%', height = 16, borderRadius, style }: S
   );
 }
 
-/** Mirrors OfferCard's layout exactly, so nothing shifts when real data lands. */
+/**
+ * Mirrors OfferCard's horizontal layout (image left, content right), so
+ * nothing shifts when real data lands — same shape as the "14. Loading
+ * skeletons" reference.
+ */
 export function OfferCardSkeleton() {
   return (
     <View style={styles.card}>
-      <Skeleton height={180} borderRadius={radius.lg} />
+      <Skeleton width={IMAGE_SIZE} height={IMAGE_SIZE} borderRadius={radius.lg} />
       <View style={styles.body}>
-        <Skeleton width="70%" height={18} />
-        <Skeleton width="45%" height={14} />
-        <Skeleton width="35%" height={20} />
+        <Skeleton width="85%" height={18} />
+        <Skeleton width="55%" height={14} />
+        <View style={styles.spacer} />
+        <Skeleton width="40%" height={14} />
+        <Skeleton width={72} height={24} borderRadius={radius.pill} />
       </View>
     </View>
   );
 }
+
+/** Même largeur que la colonne image de OfferCard (38 % d'une carte ~340px). */
+const IMAGE_SIZE = 128;
 
 export function SectionSkeleton() {
   return (
@@ -83,7 +92,8 @@ export function SectionSkeleton() {
 }
 
 const styles = StyleSheet.create({
-  card: { gap: spacing.md },
-  body: { gap: spacing.sm },
+  card: { flexDirection: 'row', gap: spacing.md },
+  body: { flex: 1, gap: spacing.sm, paddingVertical: spacing.xxs },
+  spacer: { flex: 1 },
   section: { paddingHorizontal: spacing.base, marginBottom: spacing.xxl },
 });

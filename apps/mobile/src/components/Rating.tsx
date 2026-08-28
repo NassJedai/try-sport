@@ -17,7 +17,10 @@ export function Rating({ value, count, compact = false }: RatingProps) {
       accessibilityRole="text"
       accessibilityLabel={`Note ${value.toFixed(1)} sur 5${count ? `, ${count} avis` : ''}`}
     >
-      <Text style={[styles.star, { color: theme.textPrimary }]} accessible={false}>
+      {/* Charte : « WARNING AMBER ». `theme.warning` est le seul token ambre
+          garanti lisible en texte (`warningSurface` est réservé aux aplats) —
+          voir le commentaire de la palette dans @try/design-tokens. */}
+      <Text style={[styles.star, { color: theme.warning }]} accessible={false}>
         ★
       </Text>
       <Text style={[styles.value, { color: theme.textPrimary }]} accessible={false}>

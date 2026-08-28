@@ -71,6 +71,7 @@ export const OfferCard = memo(function OfferCard({ offer }: OfferCardProps) {
     offer.venue.name,
     offer.venue.districtName,
     offer.distanceMeters !== null ? formatDistance(offer.distanceMeters) : null,
+    `${offer.durationMinutes} minutes`,
     priceLabel,
     offer.averageRating !== null ? `noté ${offer.averageRating.toFixed(1)} sur 5` : null,
   ]
@@ -92,7 +93,11 @@ export const OfferCard = memo(function OfferCard({ offer }: OfferCardProps) {
         animatedStyle,
       ]}
     >
-      <View style={styles.imageWrapper}>
+      {/* Colonne image : largeur proportionnelle, pas un ratio fixe — c'est le
+          contenu texte qui fixe la hauteur de la carte (voir `body`), l'image
+          s'étire dessus via `alignSelf: 'stretch'` (comportement Yoga standard
+          pour une image qui doit épouser la hauteur d'une rangée flex). */}
+      <View style={styles.imageColumn}>
         {offer.image ? (
           <Image
             // Thumbnail variant: a feed must never pull a full-resolution original.
@@ -106,6 +111,9 @@ export const OfferCard = memo(function OfferCard({ offer }: OfferCardProps) {
         )}
 
         {offer.badges.length > 0 && (
+          // Empilés verticalement : la colonne image est étroite désormais,
+          // deux badges côte à côte (ex. « NOUVEAU » + « PRIX DÉCOUVERTE »)
+          // n'y tiendraient pas sur une largeur d'iPhone SE.
           <View style={styles.badges}>
             {offer.badges.slice(0, 2).map((badge) => (
               <Badge key={badge} kind={badge} />
@@ -120,13 +128,21 @@ export const OfferCard = memo(function OfferCard({ offer }: OfferCardProps) {
         </Text>
 
         <Text style={[styles.venue, { color: theme.textSecondary }]} numberOfLines={1}>
-          {offer.venue.name}
+          📍 {offer.venue.name}
           {offer.venue.districtName ? ` · ${offer.venue.districtName}` : ''}
           {offer.distanceMeters !== null ? ` · ${formatDistance(offer.distanceMeters)}` : ''}
         </Text>
 
+        {offer.averageRating !== null && (
+          <Rating value={offer.averageRating} count={offer.reviewCount} compact />
+        )}
+
         <View style={styles.footer}>
-          <View style={styles.priceRow}>
+          <Text style={[styles.duration, { color: theme.textTertiary }]} numberOfLines={1}>
+            🕐 {offer.durationMinutes} min
+          </Text>
+
+          <View style={styles.priceColumn}>
             {/* Reference price first, struck through: "28 € → 10 €" reads as a
                 discovery price rather than a discount sticker. */}
             {offer.referencePrice && (
@@ -134,23 +150,28 @@ export const OfferCard = memo(function OfferCard({ offer }: OfferCardProps) {
                 {formatMoney(offer.referencePrice, { compactWholeAmounts: true })}
               </Text>
             )}
-            <Text
+            {/* Le prix est un badge plein, comme dans la maquette — mais avec
+                les teintes `price`/`success` du design system, pas le lime de
+                la charte : voir le commentaire de `signal700` dans
+                @try/design-tokens sur la distinction volontaire prix/accent. */}
+            <View
               style={[
-                styles.price,
-                { color: isFree ? theme.success : theme.price },
+                styles.priceBadge,
+                { backgroundColor: isFree ? theme.successSurface : theme.priceSurface },
               ]}
             >
-              {priceLabel}
-            </Text>
+              <Text
+                style={[styles.price, { color: isFree ? theme.onSuccess : theme.onPrice }]}
+                numberOfLines={1}
+              >
+                {priceLabel}
+              </Text>
+            </View>
           </View>
-
-          {offer.averageRating !== null && (
-            <Rating value={offer.averageRating} count={offer.reviewCount} compact />
-          )}
         </View>
 
         {offer.nextSlotAt && (
-          <Text style={[styles.nextSlot, { color: theme.textTertiary }]}>
+          <Text style={[styles.nextSlot, { color: theme.textTertiary }]} numberOfLines={1}>
             Prochain créneau · {formatTimeInZone(new Date(offer.nextSlotAt), offer.venue.timeZone)}
           </Text>
         )}
@@ -161,20 +182,32 @@ export const OfferCard = memo(function OfferCard({ offer }: OfferCardProps) {
 
 const styles = StyleSheet.create({
   card: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
     borderRadius: radius.xl,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: 'hidden',
   },
-  imageWrapper: { position: 'relative' },
-  image: { width: '100%', aspectRatio: 3 / 2 },
+  imageColumn: { position: 'relative', width: '38%' },
+  /**
+   * Absolue, pas `height: '100%'` : un pourcentage de hauteur dans une colonne
+   * dont la hauteur vient d'`alignItems: 'stretch'` est irrésoluble au premier
+   * passage de mesure — l'image retombe alors sur la taille intrinsèque du
+   * bitmap chargé et c'est ELLE qui fixe la hauteur de la carte (constaté sur
+   * l'accueil : carte étirée sur tout l'écran). En absolu, l'image ne
+   * participe plus à la mesure : la hauteur de la carte vient du texte, et
+   * l'image épouse la colonne après coup.
+   */
+  image: { ...StyleSheet.absoluteFillObject },
   badges: {
     position: 'absolute',
-    top: spacing.md,
-    left: spacing.md,
-    flexDirection: 'row',
+    top: spacing.sm,
+    left: spacing.sm,
+    flexDirection: 'column',
+    alignItems: 'flex-start',
     gap: spacing.xs,
   },
-  body: { padding: spacing.base, gap: spacing.xs },
+  body: { flex: 1, padding: spacing.base, gap: spacing.xxs },
   title: {
     fontSize: typography.title3.fontSize,
     lineHeight: typography.title3.lineHeight,
@@ -186,17 +219,27 @@ const styles = StyleSheet.create({
   },
   footer: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     justifyContent: 'space-between',
     marginTop: spacing.xs,
+    gap: spacing.sm,
   },
-  priceRow: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm },
+  duration: {
+    flex: 1,
+    fontSize: typography.footnote.fontSize,
+  },
+  priceColumn: { alignItems: 'flex-end', gap: spacing.xxs },
   referencePrice: {
     fontSize: typography.footnote.fontSize,
     textDecorationLine: 'line-through',
   },
+  priceBadge: {
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xxs,
+  },
   price: {
-    fontSize: typography.title3.fontSize,
+    fontSize: typography.callout.fontSize,
     fontWeight: '700',
   },
   nextSlot: {

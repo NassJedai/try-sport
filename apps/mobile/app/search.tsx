@@ -80,6 +80,27 @@ export default function SearchScreen() {
 
   const count = results.data?.items.length ?? 0;
 
+  /**
+   * « Padel à Paris » plutôt qu'un simple compteur (maquette « 05. Résultats »).
+   * Construit uniquement à partir de données déjà en cache — `home.data` est
+   * la même requête que celle qui alimente la rangée de disciplines juste
+   * au-dessus, aucun appel supplémentaire.
+   */
+  const resultsTitle = useMemo(() => {
+    const cityName = home.data?.cityName;
+    if (selectedCategories.length === 1) {
+      const name = categories.find((category) => category.id === selectedCategories[0])?.name;
+      if (name) return cityName ? `${name} à ${cityName}` : name;
+    }
+    if (selectedCategories.length > 1) {
+      return cityName ? `Plusieurs disciplines à ${cityName}` : 'Plusieurs disciplines';
+    }
+    if (debouncedQuery.trim().length > 0) {
+      return `Résultats pour « ${debouncedQuery.trim()} »`;
+    }
+    return cityName ? `À essayer à ${cityName}` : 'Résultats';
+  }, [categories, debouncedQuery, home.data?.cityName, selectedCategories]);
+
   return (
     <View
       style={[
@@ -121,7 +142,12 @@ export default function SearchScreen() {
         >
           {home.isLoading
             ? Array.from({ length: 6 }, (_, index) => (
-                <Skeleton key={index} width={92} height={64} borderRadius={radius.lg} />
+                <Skeleton
+                  key={index}
+                  width={110}
+                  height={touchTarget.minimum}
+                  borderRadius={radius.pill}
+                />
               ))
             : categories.map((category) => {
                 const isSelected = selectedCategories.includes(category.id);
@@ -135,8 +161,11 @@ export default function SearchScreen() {
                     style={[
                       styles.chip,
                       {
-                        backgroundColor: isSelected ? theme.accentSubtle : theme.surface,
-                        borderColor: isSelected ? theme.accentText : theme.border,
+                        // Rempli plein lime quand sélectionné, comme "Tous" en
+                        // 05.1 du design system — pas le lavis pâle utilisé
+                        // avant, réservé aux surfaces non interactives.
+                        backgroundColor: isSelected ? theme.accent : theme.surface,
+                        borderColor: isSelected ? theme.accent : theme.border,
                       },
                     ]}
                   >
@@ -145,7 +174,7 @@ export default function SearchScreen() {
                       style={[
                         styles.chipLabel,
                         {
-                          color: isSelected ? theme.accentText : theme.textSecondary,
+                          color: isSelected ? theme.onAccent : theme.textPrimary,
                           fontWeight: isSelected ? '700' : '500',
                         },
                       ]}
@@ -184,7 +213,9 @@ export default function SearchScreen() {
                       { backgroundColor: theme.surface, borderColor: theme.border },
                     ]}
                   >
-                    <Text style={styles.tileEmoji}>{categoryEmoji(category.icon)}</Text>
+                    <View style={[styles.tileIconBadge, { backgroundColor: theme.accentSubtle }]}>
+                      <Text style={styles.tileEmoji}>{categoryEmoji(category.icon)}</Text>
+                    </View>
                     <Text
                       style={[styles.tileLabel, { color: theme.textPrimary }]}
                       numberOfLines={1}
@@ -223,9 +254,17 @@ export default function SearchScreen() {
             <OfferCard offer={item} section="search" position={index} />
           )}
           ListHeaderComponent={
-            <Text style={[styles.count, { color: theme.textSecondary }]}>
-              {count} résultat{count > 1 ? 's' : ''}
-            </Text>
+            <View style={styles.resultsHeader}>
+              <Text
+                style={[styles.resultsTitle, { color: theme.textPrimary }]}
+                accessibilityRole="header"
+              >
+                {resultsTitle}
+              </Text>
+              <Text style={[styles.count, { color: theme.textSecondary }]}>
+                {count} résultat{count > 1 ? 's' : ''}
+              </Text>
+            </View>
           }
         />
       )}
@@ -261,18 +300,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.base,
   },
+  // Pilule sur une seule ligne (icône + libellé), comme "05.1 Chips" du
+  // design system — l'ancien empilement icône/libellé imitait plutôt une
+  // tuile, pas un filtre.
   chip: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 2,
-    minWidth: 88,
+    gap: spacing.xs,
+    minHeight: touchTarget.minimum,
     borderWidth: 1.5,
-    borderRadius: radius.lg,
-    paddingHorizontal: spacing.sm,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.base,
     paddingVertical: spacing.sm,
   },
-  chipEmoji: { fontSize: 22 },
-  chipLabel: { fontSize: typography.caption.fontSize },
+  chipEmoji: { fontSize: 17 },
+  chipLabel: { fontSize: typography.callout.fontSize },
   gridContent: { paddingHorizontal: spacing.base, paddingBottom: spacing.xl },
   gridTitle: {
     fontSize: typography.title3.fontSize,
@@ -289,13 +331,26 @@ const styles = StyleSheet.create({
   tile: {
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.xs,
+    gap: spacing.sm,
     borderWidth: 1,
     borderRadius: radius.lg,
     paddingVertical: spacing.lg,
   },
-  tileEmoji: { fontSize: 32 },
+  tileIconBadge: {
+    width: spacing.xxxl + spacing.sm,
+    height: spacing.xxxl + spacing.sm,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tileEmoji: { fontSize: 26 },
   tileLabel: { fontSize: typography.callout.fontSize, fontWeight: '600' },
   list: { padding: spacing.base, gap: spacing.base },
-  count: { fontSize: typography.footnote.fontSize, marginBottom: spacing.md },
+  resultsHeader: { marginBottom: spacing.base },
+  resultsTitle: {
+    fontSize: typography.title2.fontSize,
+    lineHeight: typography.title2.lineHeight,
+    fontWeight: '700',
+  },
+  count: { fontSize: typography.footnote.fontSize, marginTop: spacing.xxs },
 });

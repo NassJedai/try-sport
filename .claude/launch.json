@@ -1,29 +1,53 @@
 {
   "//": "Le dépôt vit désormais sous ~/dev/try-sport : chemin sans espaces et hors de ~/Desktop, où le lanceur d'aperçu se heurtait à un EPERM. Les configurations démarrent donc les serveurs elles-mêmes, au lieu de s'attacher à un processus lancé à la main. Ce chemin est aussi la condition d'un build mobile natif — Metro et Gradle cassent sur les espaces.",
-
   "version": "0.0.1",
   "configurations": [
     {
       "name": "business",
       "runtimeExecutable": "node_modules/.bin/next",
-      "runtimeArgs": ["dev", "apps/business", "-p", "3001"],
+      "runtimeArgs": [
+        "dev",
+        "apps/business",
+        "-p",
+        "3001"
+      ],
       "port": 3001
     },
     {
       "name": "admin",
       "runtimeExecutable": "node_modules/.bin/next",
-      "runtimeArgs": ["dev", "apps/admin", "-p", "3002"],
+      "runtimeArgs": [
+        "dev",
+        "apps/admin",
+        "-p",
+        "3002"
+      ],
       "port": 3002
     },
     {
       "//": "L'API a besoin de Postgres avec PostGIS sur le port du DATABASE_URL. Elle ne sert pas d'interface : l'aperçu s'ouvre sur /docs.",
       "name": "api",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@try/api", "dev"],
+      "runtimeArgs": [
+        "--filter",
+        "@try/api",
+        "dev"
+      ],
       "port": 3000,
       "//autoPort": "Le port 3000 n'est pas négociable : `stripe listen` y renvoie les webhooks, et le secret de signature est lié à cette URL.",
       "autoPort": false,
       "url": "http://localhost:3000"
+    },
+    {
+      "//": "Metro (Expo). Ne sert pas d'interface web utile — l'app se teste dans Expo Go sur simulateur via exp://127.0.0.1:8081.",
+      "name": "mobile",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "@try/mobile",
+        "dev"
+      ],
+      "port": 8081
     }
   ]
 }

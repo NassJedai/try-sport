@@ -24,9 +24,11 @@ export function EmptyState({ title, message, actionLabel, onAction, emoji }: Emp
   return (
     <View style={styles.container} accessibilityRole="summary">
       {emoji && (
-        <Text style={styles.emoji} accessible={false}>
-          {emoji}
-        </Text>
+        <View style={[styles.iconBadge, { backgroundColor: theme.accentSubtle }]}>
+          <Text style={styles.emoji} accessible={false}>
+            {emoji}
+          </Text>
+        </View>
       )}
       <Text style={[styles.title, { color: theme.textPrimary }]}>{title}</Text>
       <Text style={[styles.message, { color: theme.textSecondary }]}>{message}</Text>
@@ -52,9 +54,18 @@ export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () =>
 
   return (
     <View style={styles.container} accessibilityRole="alert">
-      <Text style={styles.emoji} accessible={false}>
-        {isOffline ? '📡' : '⚠️'}
-      </Text>
+      {/* Ambre pour le hors-ligne (une précaution, pas une faute), rouge pour
+          une vraie erreur — même logique de teinte que `OfflineBanner`. */}
+      <View
+        style={[
+          styles.iconBadge,
+          { backgroundColor: isOffline ? theme.warningSubtle : theme.dangerSubtle },
+        ]}
+      >
+        <Text style={styles.emoji} accessible={false}>
+          {isOffline ? '📡' : '⚠️'}
+        </Text>
+      </View>
       <Text style={[styles.title, { color: theme.textPrimary }]}>
         {isOffline ? 'Pas de connexion' : 'Quelque chose n’a pas fonctionné'}
       </Text>
@@ -90,7 +101,14 @@ const styles = StyleSheet.create({
     padding: spacing.xxl,
     gap: spacing.md,
   },
-  emoji: { fontSize: 40 },
+  iconBadge: {
+    width: spacing.xxxl * 2,
+    height: spacing.xxxl * 2,
+    borderRadius: spacing.xxxl,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emoji: { fontSize: 36 },
   title: {
     fontSize: typography.title2.fontSize,
     lineHeight: typography.title2.lineHeight,

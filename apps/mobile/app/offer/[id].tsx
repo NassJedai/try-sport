@@ -1,7 +1,14 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Dimensions, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, {
+  Extrapolation,
+  interpolate,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  useSharedValue,
+} from 'react-native-reanimated';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, queryKeys } from '@try/api-client';
 import type { SlotDto } from '@try/contracts';
@@ -16,11 +23,22 @@ import { radius, shadows, spacing, typography } from '@try/design-tokens';
 import { api } from '@/api/client';
 import { AVAILABILITY_QUERY_OPTIONS } from '@/api/query-client';
 import { useTheme } from '@/theme';
+import { Badge } from '@/components/Badge';
 import { Button } from '@/components/Button';
 import { Skeleton } from '@/components/Skeleton';
 import { ErrorState } from '@/components/States';
 import { Rating } from '@/components/Rating';
 import { useFavorite } from '@/hooks/use-favorite';
+
+/**
+ * Hauteur du héros, calculée depuis `styles.hero` (`aspectRatio: 4 / 3` sur
+ * `width: '100%'`) plutôt que mesurée via `onLayout` : l'app est verrouillée
+ * en portrait (`app.json`), donc la largeur d'écran ne change jamais en cours
+ * de vie de l'écran — pas besoin d'attendre un premier passage de layout, et
+ * pas de risque que le masque de zone sûre parte à l'opacité 1 avant que la
+ * vraie hauteur soit connue.
+ */
+const HERO_HEIGHT = Dimensions.get('window').width * (3 / 4);
 
 export default function OfferDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -30,6 +48,28 @@ export default function OfferDetailScreen() {
   const queryClient = useQueryClient();
   const [selectedSlot, setSelectedSlot] = useState<SlotDto | null>(null);
   const favorite = useFavorite(id);
+
+  /**
+   * Masque de zone sûre : au repos le héros occupe l'espace sous l'horloge /
+   * la Dynamic Island (le `ScrollView` a `paddingTop: insets.top`), mais une
+   * fois le héros défilé, le titre puis la description remontent sous cette
+   * zone sans qu'aucune surface opaque ne les en empêche — collision
+   * constatée par Nassim au simulateur. Le fondu se cale sur la hauteur du
+   * héros : encore invisible tant qu'il est à l'écran, opaque une fois qu'on
+   * l'a dépassé.
+   */
+  const scrollY = useSharedValue(0);
+  const scrollHandler = useAnimatedScrollHandler((event) => {
+    scrollY.value = event.contentOffset.y;
+  });
+  const scrollMaskStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(
+      scrollY.value,
+      [HERO_HEIGHT - spacing.huge, HERO_HEIGHT],
+      [0, 1],
+      Extrapolation.CLAMP,
+    ),
+  }));
 
   const offerQuery = useQuery({
     queryKey: queryKeys.offers.detail(id),
@@ -134,7 +174,11 @@ export default function OfferDetailScreen() {
 
   return (
     <View style={[styles.fill, { backgroundColor: theme.background }]}>
-      <ScrollView contentContainerStyle={{ paddingTop: insets.top, paddingBottom: 140 }}>
+      <Animated.ScrollView
+        onScroll={scrollHandler}
+        scrollEventThrottle={16}
+        contentContainerStyle={{ paddingTop: insets.top, paddingBottom: 140 }}
+      >
         <View>
           {offer.gallery[0] ? (
             <Image
@@ -145,6 +189,32 @@ export default function OfferDetailScreen() {
             />
           ) : (
             <View style={[styles.hero, { backgroundColor: theme.surfaceMuted }]} />
+          )}
+
+          {/* Symétrique du cœur : seul le geste de bord permettait de revenir
+              en arrière avant, ce que rien à l'écran ne signalait. */}
+          <Pressable
+            onPress={() => router.back()}
+            accessibilityRole="button"
+            accessibilityLabel="Retour"
+            hitSlop={12}
+            style={[styles.backButton, { backgroundColor: theme.background }]}
+          >
+            <Text style={{ fontSize: 20, color: theme.textPrimary }} accessible={false}>
+              ←
+            </Text>
+          </Pressable>
+
+          {/* `offer.badges` était chargé par la requête mais jamais affiché sur
+              cette fiche — la maquette « 06. Détail activité » le montre en
+              recouvrement du visuel, comme sur `OfferCard`. Décalé à droite du
+              bouton retour pour ne pas se superposer à sa pastille. */}
+          {offer.badges.length > 0 && (
+            <View style={styles.heroBadges}>
+              {offer.badges.slice(0, 2).map((badge) => (
+                <Badge key={badge} kind={badge} />
+              ))}
+            </View>
           )}
 
           {/* Optimistic: the heart fills on tap and rolls back only if the
@@ -194,9 +264,9 @@ export default function OfferDetailScreen() {
           )}
 
           <View style={styles.metaRow}>
-            <Meta label="Durée" value={`${offer.durationMinutes} min`} />
-            <Meta label="Niveau" value={skillLabel(offer.skillLevel)} />
-            <Meta label="Places" value={`${offer.capacity} max`} />
+            <Meta icon="🕐" label="Durée" value={`${offer.durationMinutes} min`} />
+            <Meta icon="🎯" label="Niveau" value={skillLabel(offer.skillLevel)} />
+            <Meta icon="👥" label="Places" value={`${offer.capacity} max`} />
           </View>
 
           <Text style={[styles.description, { color: theme.textPrimary }]}>
@@ -206,9 +276,12 @@ export default function OfferDetailScreen() {
           {offer.whatToBring.length > 0 && (
             <Section title="À prévoir">
               {offer.whatToBring.map((item) => (
-                <Text key={item} style={[styles.listItem, { color: theme.textSecondary }]}>
-                  • {item}
-                </Text>
+                <View key={item} style={styles.listRow}>
+                  <Text style={[styles.listCheck, { color: theme.accentText }]} accessible={false}>
+                    ✓
+                  </Text>
+                  <Text style={[styles.listItem, { color: theme.textSecondary }]}>{item}</Text>
+                </View>
               ))}
             </Section>
           )}
@@ -216,9 +289,12 @@ export default function OfferDetailScreen() {
           {offer.amenities.length > 0 && (
             <Section title="Sur place">
               {offer.amenities.map((item) => (
-                <Text key={item} style={[styles.listItem, { color: theme.textSecondary }]}>
-                  • {item}
-                </Text>
+                <View key={item} style={styles.listRow}>
+                  <Text style={[styles.listCheck, { color: theme.accentText }]} accessible={false}>
+                    ✓
+                  </Text>
+                  <Text style={[styles.listItem, { color: theme.textSecondary }]}>{item}</Text>
+                </View>
               ))}
             </Section>
           )}
@@ -266,7 +342,8 @@ export default function OfferDetailScreen() {
                           style={[
                             styles.slot,
                             {
-                              backgroundColor: isSelected ? theme.accent : theme.surfaceMuted,
+                              backgroundColor: isSelected ? theme.accent : theme.surface,
+                              borderColor: isSelected ? theme.accent : theme.border,
                               opacity: slot.isBookable ? 1 : 0.4,
                             },
                           ]}
@@ -298,7 +375,17 @@ export default function OfferDetailScreen() {
             )}
           </Section>
         </View>
-      </ScrollView>
+      </Animated.ScrollView>
+
+      {/* Masque de zone sûre : rendu après le ScrollView pour peindre par-dessus
+          son contenu, jamais avant — sinon le fondu passerait sous le titre et
+          la description au lieu de les couvrir. `pointerEvents="none"` : c'est
+          un fond, pas une surface tapable, et il ne doit jamais voler le geste
+          de bord qui permet aussi de revenir en arrière. */}
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.scrollMask, { height: insets.top, backgroundColor: theme.background }, scrollMaskStyle]}
+      />
 
       {/* Sticky CTA: the price and the action stay reachable at all times. */}
       <View
@@ -337,7 +424,7 @@ export default function OfferDetailScreen() {
             </Text>
           )}
           <Text
-            style={[styles.ctaAmount, { color: isFree ? theme.success : theme.textPrimary }]}
+            style={[styles.ctaAmount, { color: isFree ? theme.success : theme.price }]}
           >
             {formatMoney(offer.price, { freeLabel: 'Gratuit', compactWholeAmounts: true })}
           </Text>
@@ -385,11 +472,17 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function Meta({ label, value }: { label: string; value: string }) {
+/**
+ * Icône + valeur sur une ligne, comme les puces « ★ 4,8  🔒 Tous niveaux » de
+ * la maquette — la légende en majuscules qui surmontait chaque valeur a
+ * disparu visuellement mais reste portée par `accessibilityLabel`, l'icône
+ * étant décorative pour un lecteur d'écran.
+ */
+function Meta({ icon, label, value }: { icon: string; label: string; value: string }) {
   const theme = useTheme();
   return (
-    <View style={styles.meta}>
-      <Text style={[styles.metaLabel, { color: theme.textTertiary }]}>{label}</Text>
+    <View style={styles.meta} accessibilityLabel={`${label} ${value}`}>
+      <Text accessible={false}>{icon}</Text>
       <Text style={[styles.metaValue, { color: theme.textPrimary }]}>{value}</Text>
     </View>
   );
@@ -423,6 +516,24 @@ function skillLabel(level: string): string {
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   hero: { width: '100%', aspectRatio: 4 / 3 },
+  backButton: {
+    position: 'absolute',
+    top: spacing.xl,
+    left: spacing.base,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // À droite du bouton retour (48 de large + un espacement), même rangée.
+  heroBadges: {
+    position: 'absolute',
+    top: spacing.xl,
+    left: spacing.base + 48 + spacing.sm,
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
   favorite: {
     position: 'absolute',
     top: spacing.xl,
@@ -433,6 +544,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Bande opaque en haut, invisible tant que le héros est visible, qui
+  // apparaît au défilement pour ne jamais laisser le contenu remonter sous
+  // l'horloge / la Dynamic Island (voir `scrollMaskStyle`).
+  scrollMask: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+  },
   body: { padding: spacing.base, gap: spacing.sm },
   title: {
     fontSize: typography.title1.fontSize,
@@ -441,8 +561,7 @@ const styles = StyleSheet.create({
   },
   venue: { fontSize: typography.callout.fontSize },
   metaRow: { flexDirection: 'row', gap: spacing.xl, marginVertical: spacing.md },
-  meta: { gap: spacing.xxs },
-  metaLabel: { fontSize: typography.caption.fontSize, textTransform: 'uppercase' },
+  meta: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   metaValue: { fontSize: typography.bodyStrong.fontSize, fontWeight: '600' },
   description: {
     fontSize: typography.body.fontSize,
@@ -454,7 +573,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginBottom: spacing.xs,
   },
-  listItem: { fontSize: typography.body.fontSize, lineHeight: typography.body.lineHeight },
+  listItem: { flex: 1, fontSize: typography.body.fontSize, lineHeight: typography.body.lineHeight },
+  listRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
+  listCheck: { fontSize: typography.body.fontSize, fontWeight: '700', lineHeight: typography.body.lineHeight },
   day: { marginBottom: spacing.base },
   dayLabel: {
     fontSize: typography.bodyStrong.fontSize,
@@ -467,6 +588,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.md,
     borderRadius: radius.md,
+    borderWidth: 1,
     minWidth: 88,
     minHeight: 48,
     alignItems: 'center',
