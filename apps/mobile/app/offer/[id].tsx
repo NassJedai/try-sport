@@ -424,6 +424,9 @@ export default function OfferDetailScreen() {
             </Text>
           )}
           <Text
+            // Discret, pour le filet de fumée Maestro (apps/mobile/.maestro) : le
+            // montant varie selon l'offre du seed, ce testID ne varie pas.
+            testID="offer-price"
             style={[styles.ctaAmount, { color: isFree ? theme.success : theme.price }]}
           >
             {formatMoney(offer.price, { freeLabel: 'Gratuit', compactWholeAmounts: true })}
@@ -432,6 +435,7 @@ export default function OfferDetailScreen() {
 
         <View style={styles.ctaButton}>
           <Button
+            testID="offer-slot-button"
             label={
               ineligible
                 ? 'Déjà essayé'

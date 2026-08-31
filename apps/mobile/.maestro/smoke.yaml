@@ -1,0 +1,57 @@
+appId: host.exp.Exponent
+---
+# Filet de fumée — apps/mobile (Expo Go, simulateur iOS)
+#
+# Découverte → fiche d'offre : le cœur du parcours. Un premier `launchApp`
+# suffi rarement à charger le bundle du projet — Expo Go retombe sur son
+# propre écran d'accueil (« Recently opened ») si le lien est ouvert trop tôt
+# ou si Expo Go n'était pas encore au premier plan. On laisse Expo Go
+# atteindre son propre accueil (« Home », son onglet à lui, pas celui de
+# l'app) avant de rejouer le deep link vers le bundler Metro.
+- launchApp
+- extendedWaitUntil:
+    visible: "Home"
+    timeout: 15000
+    optional: true
+- openLink: "exp://127.0.0.1:8081"
+
+# Selon qu'un jeton de session traîne déjà dans le simulateur, l'app atterrit
+# soit sur l'onboarding (TRIALYA / « Explorer sans compte »), soit direct sur
+# l'accueil découverte (« Que veux-tu essayer ? »). Les deux sont un succès du
+# lancement — seul le second doit forcément suivre.
+- extendedWaitUntil:
+    visible: "TRIALYA"
+    timeout: 45000
+    optional: true
+
+- runFlow:
+    when:
+      visible: "Explorer sans compte"
+    commands:
+      - tapOn: "Explorer sans compte"
+
+# Maestro exige une correspondance intégrale du texte affiché, pas une simple
+# sous-chaîne — d'où le « ? » final, sans quoi l'assertion échoue en silence
+# malgré un écran manifestement correct (constaté ici).
+- extendedWaitUntil:
+    visible: "Que veux-tu essayer ?"
+    timeout: 20000
+
+# Au moins une carte d'offre visible sur l'accueil découverte.
+- extendedWaitUntil:
+    visible:
+      id: "offer-card-.*"
+    timeout: 15000
+
+- tapOn:
+    id: "offer-card-.*"
+    index: 0
+
+# La fiche affiche un prix et le bouton de créneau — jamais un montant ou une
+# disponibilité recalculés côté client, seulement ce que l'API a renvoyé.
+- extendedWaitUntil:
+    visible:
+      id: "offer-price"
+    timeout: 15000
+- assertVisible:
+    id: "offer-slot-button"

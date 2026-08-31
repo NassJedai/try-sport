@@ -34,6 +34,13 @@ pnpm-debug.log*
 # Fichiers uploadés en local (photos) — jamais versionnés
 .media/
 
+# Filet de fumée Playwright (apps/business, apps/admin) — état d'authentification
+# (jetons réels d'une session locale) et rapports d'exécution, jamais versionnés.
+e2e/.auth/
+e2e/test-results/
+e2e/playwright-report/
+e2e/blob-report/
+
 # Planches de charte graphique reçues (7 Mo de PNG). Référence de travail, pas
 # une dépendance du produit : les décisions qu'on en a tirées vivent dans les
 # tokens et dans docs/adr/. Git ne sait pas oublier un binaire.

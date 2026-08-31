@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   refreshTokenSchema,
@@ -10,6 +10,7 @@ import { Public } from '../../common/auth/auth.guard.js';
 import { RateLimit } from '../../common/rate-limit/rate-limit.guard.js';
 import { zodBody } from '../../common/zod-validation.pipe.js';
 import { CurrentUser, type AuthenticatedUser } from '../../common/auth/current-user.js';
+import { ApiException } from '../../common/errors/api-exception.js';
 import { AuthService } from './auth.service.js';
 
 @ApiTags('auth')
@@ -52,5 +53,23 @@ export class AuthController {
   @ApiOperation({ summary: 'The signed-in user' })
   me(@CurrentUser() user: AuthenticatedUser): Promise<ViewerDto> {
     return this.auth.getViewer(user.id);
+  }
+
+  /**
+   * DEV ONLY (local): the last OTP code issued to an email, for a local e2e
+   * smoke suite that has no mailbox to read (see `apps/business`,
+   * `apps/admin` under `e2e/`). `AuthService.getDevLastOtp` returns `null`
+   * whenever `AUTH_DEV_ECHO_OTP && isLocal` doesn't hold — which is refused
+   * outside `APP_ENV=local` by `packages/config` itself — and this handler
+   * turns that into a 404, so nothing about this route's behaviour changes
+   * once it leaves local development.
+   */
+  @Get('dev/last-otp')
+  @Public()
+  @ApiOperation({ summary: 'DEV ONLY (local): last OTP code issued for an email' })
+  getDevLastOtp(@Query('email') email?: string): { code: string } {
+    const code = email ? this.auth.getDevLastOtp(email) : null;
+    if (!code) throw ApiException.notFound('devLastOtp', email);
+    return { code };
   }
 }

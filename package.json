@@ -21,12 +21,15 @@
     "mobile": "pnpm --filter @try/mobile start",
     "business": "pnpm --filter @try/business dev",
     "admin": "pnpm --filter @try/admin dev",
+    "e2e": "playwright test --config=e2e/playwright.config.ts",
     "db:generate": "pnpm --filter @try/database generate",
     "db:migrate": "pnpm --filter @try/database migrate",
     "db:seed": "pnpm --filter @try/database seed",
-    "db:studio": "pnpm --filter @try/database studio"
+    "db:studio": "pnpm --filter @try/database studio",
+    "e2e:mobile": "bash apps/mobile/.maestro/run.sh"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "prettier": "3.4.2",
     "turbo": "2.10.10",
     "typescript": "5.9.3",

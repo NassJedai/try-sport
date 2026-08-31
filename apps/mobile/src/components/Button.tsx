@@ -29,6 +29,8 @@ interface ButtonProps {
   accessibilityHint?: string;
   /** Reserved for genuinely destructive or celebratory actions. */
   haptic?: 'light' | 'medium' | 'success' | 'none';
+  /** Discret, pour les filets de fumée Maestro (`.maestro/`) — ne porte aucune logique. */
+  testID?: string;
 }
 
 export const Button = memo(function Button({
@@ -43,6 +45,7 @@ export const Button = memo(function Button({
   style,
   accessibilityHint,
   haptic = 'light',
+  testID,
 }: ButtonProps) {
   const theme = useTheme();
   const reducedMotion = useReducedMotion();
@@ -81,6 +84,7 @@ export const Button = memo(function Button({
 
   return (
     <AnimatedPressable
+      testID={testID}
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityHint={accessibilityHint}

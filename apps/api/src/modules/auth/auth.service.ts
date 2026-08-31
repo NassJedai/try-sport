@@ -22,6 +22,16 @@ const OTP_MAX_ATTEMPTS = 5;
 
 @Injectable()
 export class AuthService {
+  /**
+   * DEV ONLY, in-memory, keyed by email — the last code issued while the same
+   * gate as the log line below (`AUTH_DEV_ECHO_OTP && isLocal`) is open. Lets
+   * a local e2e smoke suite read a code over HTTP instead of scraping stdout;
+   * see `getDevLastOtp` and `AuthController.getDevLastOtp`. Never read from
+   * here without re-checking the gate — `getDevLastOtp` does that, this map
+   * is not itself a safety boundary.
+   */
+  private readonly devOtpEcho = new Map<string, string>();
+
   constructor(
     @Inject(DATABASE) private readonly db: Database,
     @Inject(CLOCK) private readonly clock: Clock,
@@ -65,9 +75,25 @@ export class AuthService {
     // anti-leak guard silently neutralised the one log line meant to leak.
     if (this.config.AUTH_DEV_ECHO_OTP && this.config.isLocal) {
       this.logger.warn({ email: dto.email, devLoginCode: code }, 'DEV ONLY: login code issued');
+      this.devOtpEcho.set(dto.email, code);
     }
 
     return { sent: true };
+  }
+
+  /**
+   * DEV ONLY — the code just written to `devOtpEcho` above, for a local e2e
+   * suite that cannot read server stdout. Returns `null` whenever the gate
+   * that populates the map is closed, regardless of what's asked for: the
+   * config that would let `AUTH_DEV_ECHO_OTP` be true also refuses to boot
+   * outside `APP_ENV=local` (see `packages/config`, the issue raised on
+   * `AUTH_DEV_ECHO_OTP` when `requiresHardening`), so this is structurally a
+   * no-op anywhere but local development, the same guarantee already relied
+   * on for the log line above.
+   */
+  getDevLastOtp(email: string): string | null {
+    if (!(this.config.AUTH_DEV_ECHO_OTP && this.config.isLocal)) return null;
+    return this.devOtpEcho.get(email) ?? null;
   }
 
   async verifyOtp(dto: VerifyOtpDto): Promise<AuthSessionDto> {

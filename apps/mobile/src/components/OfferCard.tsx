@@ -80,6 +80,10 @@ export const OfferCard = memo(function OfferCard({ offer }: OfferCardProps) {
 
   return (
     <AnimatedPressable
+      // Discret, pour le filet de fumée Maestro (apps/mobile/.maestro) : l'id de
+      // l'offre varie avec le seed, donc un sélecteur texte n'est pas stable —
+      // ce préfixe l'est. Ne porte aucune logique produit.
+      testID={`offer-card-${offer.id}`}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       accessibilityHint="Ouvre le détail de l'offre"
