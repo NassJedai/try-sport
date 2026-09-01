@@ -60,6 +60,10 @@ En staging et en production, l'endpoint webhook doit être explicitement abonné
 depuis le tableau de bord Stripe, aux types suivants :
 
 ```
+checkout.session.completed
+checkout.session.async_payment_succeeded
+checkout.session.async_payment_failed
+checkout.session.expired
 payment_intent.succeeded
 payment_intent.payment_failed
 payment_intent.canceled
@@ -70,11 +74,25 @@ charge.refund.updated
 charge.refunded
 ```
 
-**Les CINQ derniers sont les nouveaux** — de `refund.created` à
-`charge.refunded` inclus. Cette phrase disait « les quatre derniers » jusqu'au
-26 août : elle excluait `refund.created`, c'est-à-dire **l'événement principal du
-remboursement**. Qui suivait ce document abonnait donc tout sauf l'essentiel, et
-n'avait aucun moyen de s'en apercevoir.
+**Les QUATRE premiers (`checkout.session.*`) sont les nouveaux depuis le
+passage au Checkout hébergé (27/08)** — et `checkout.session.completed` est
+**l'événement principal du paiement** : c'est lui qui relie la session à son
+PaymentIntent et règle le paiement. Jusqu'au 1ᵉʳ septembre, cette liste ne le
+contenait pas. L'oubli a été constaté **en conditions réelles** lors de la
+traversée du 31/08 : un tunnel abonné à cette liste laissait le client payer,
+l'API acquittait `payment_intent.succeeded` par un « ignored (already applied) »
+trompeur (aucun paiement ne porte encore cet intent id), la réservation restait
+`PAYMENT_PENDING` jusqu'à l'expiration du hold, et l'argent restait encaissé
+sur une place relâchée — l'exact scénario que le paragraphe ci-dessous décrivait
+déjà pour `refund.created`. Qui suivait ce document reproduisait ce défaut en
+staging sans aucun moyen de s'en apercevoir.
+
+**Le même document s'était déjà trompé une fois ici** : cette phrase disait
+« les quatre derniers sont les nouveaux » jusqu'au 26 août, excluant
+`refund.created` — l'événement principal du remboursement. Deux fois le même
+motif : la liste d'abonnement vieillit plus vite que le code qu'elle dessert.
+À la prochaine évolution des paiements, vérifier cette liste contre les `case`
+de `stripe.provider.ts` doit faire partie de la revue.
 
 Les trois premiers (`payment_intent.*`) existaient déjà. Vérifié dans le code :
 `stripe.provider.ts:266-308` traduit exactement ces huit types, ni plus ni moins.
